@@ -6,4 +6,5 @@ export * from "./schemas/auth";
 export * from "./schemas/branch";
 export * from "./schemas/staff";
 export * from "./schemas/catalog";
+export * from "./schemas/inventory";
 export * from "./schemas/pos";

@@ -122,3 +122,22 @@ export function calculateWeightedAverageCost(
 
   return divideRoundHalfUp(totalValuationScaled, totalQty);
 }
+
+/**
+ * Compute effective incoming unit cost (in minor units) after subtracting line discount.
+ */
+export function calculateEffectiveIncomingUnitCost(
+  incomingQtyMilli: bigint,
+  unitCostMinor: bigint,
+  lineDiscountMinor = 0n,
+): bigint {
+  if (incomingQtyMilli <= 0n) {
+    throw new RangeError("Incoming quantity must be greater than zero");
+  }
+  const grossLineMinor = calculateLineSubtotal(incomingQtyMilli, unitCostMinor);
+  const netLineMinor = grossLineMinor - lineDiscountMinor;
+  if (netLineMinor < 0n) {
+    throw new RangeError("Line discount cannot exceed line gross subtotal");
+  }
+  return divideRoundHalfUp(netLineMinor * QTY_SCALE, incomingQtyMilli);
+}
