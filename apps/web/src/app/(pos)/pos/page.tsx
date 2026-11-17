@@ -2,17 +2,21 @@
 
 import {
   calculatePosInvoiceTotals,
+  createCustomerSchema,
+  type CustomerItem,
+  type InvoiceReceiptResponse,
   openShiftSchema,
   PAYMENT_METHODS,
   type PaymentMethod,
   PERMISSIONS,
   type PosCatalogItem,
-  type InvoiceReceiptResponse,
+  SUPERVISOR_APPROVAL_PERMISSIONS,
 } from "@smart-pos/shared";
 import {
   AlertCircleIcon,
   CheckCircle2Icon,
   CreditCardIcon,
+  KeyRoundIcon,
   LayoutDashboardIcon,
   LockOpenIcon,
   LogOutIcon,
@@ -21,8 +25,12 @@ import {
   PrinterIcon,
   ReceiptIcon,
   RefreshCwIcon,
+  RotateCcwIcon,
   SearchIcon,
+  ShieldCheckIcon,
   Trash2Icon,
+  UserPlusIcon,
+  UsersIcon,
   WifiIcon,
   WifiOffIcon,
   XIcon,
@@ -31,7 +39,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { toast } from "sonner";
+import { InvoiceActionsDialog } from "@/components/pos/invoice-actions-dialog";
 import { ShiftZReportDialog } from "@/components/pos/shift-z-report-dialog";
+import { SupervisorPinDialog } from "@/components/pos/supervisor-pin-dialog";
 import { ThermalReceiptDialog } from "@/components/pos/thermal-receipt-dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -44,6 +54,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
@@ -56,8 +74,10 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { useLogout, useMe } from "@/hooks/use-auth";
+import { useCreateCustomer, useCustomers } from "@/hooks/use-customers";
 import {
   useCurrentShift,
+  useOpenCashDrawer,
   useOpenShift,
   usePosCatalog,
   usePosCheckout,
@@ -93,6 +113,12 @@ interface PendingInvoiceTab {
   id: string;
   label: string;
   idempotencyKey: string;
+  customerId: string | null;
+  customerName: string | null;
+  customerPoints: number;
+  supervisorApprovalToken?: string;
+  supervisorPermission?: (typeof SUPERVISOR_APPROVAL_PERMISSIONS)[number];
+  supervisorApproverName?: string;
   items: CartLineState[];
   invoiceDiscountAmount: string;
   payments: PaymentLegState[];
@@ -114,6 +140,9 @@ function createEmptyTab(index: number): PendingInvoiceTab {
     id: `tab-${index}-${Date.now()}`,
     label: `Hóa đơn ${index}`,
     idempotencyKey: makeUuid(),
+    customerId: null,
+    customerName: null,
+    customerPoints: 0,
     items: [],
     invoiceDiscountAmount: "0.00",
     payments: [{ method: "CASH", amount: "0.00", referenceNo: "" }],
@@ -152,6 +181,25 @@ export default function PosTerminalPage() {
     useState<InvoiceReceiptResponse | null>(null);
   const [zReportOpen, setZReportOpen] = useState(false);
   const [showRecentInvoices, setShowRecentInvoices] = useState(false);
+  const [selectedInvoiceActionId, setSelectedInvoiceActionId] = useState<
+    string | null
+  >(null);
+  const [invoiceActionOpen, setInvoiceActionOpen] = useState(false);
+
+  const [pinDialogOpen, setPinDialogOpen] = useState(false);
+  const [pinPermission, setPinPermission] = useState<
+    (typeof SUPERVISOR_APPROVAL_PERMISSIONS)[number] | null
+  >(null);
+
+  const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [newCustomerOpen, setNewCustomerOpen] = useState(false);
+  const [newCustomerName, setNewCustomerName] = useState("");
+  const [newCustomerPhone, setNewCustomerPhone] = useState("");
+  const [newCustomerError, setNewCustomerError] = useState<string | null>(null);
+
+  const [drawerDialogOpen, setDrawerDialogOpen] = useState(false);
+  const [drawerReason, setDrawerReason] = useState("");
 
   const profile = meQuery.data;
 
@@ -182,6 +230,13 @@ export default function PosTerminalPage() {
   const currentShiftQuery = useCurrentShift(branchId, Boolean(profile && branchId));
   const openShiftMutation = useOpenShift();
   const checkoutMutation = usePosCheckout(profile?.tenant.id);
+  const createCustomerMutation = useCreateCustomer();
+  const openDrawerMutation = useOpenCashDrawer();
+
+  const customersQuery = useCustomers(
+    { search: customerSearch, limit: 10 },
+    Boolean(profile && customerPickerOpen),
+  );
 
   const currentShift = currentShiftQuery.data?.shift ?? null;
   const recentInvoicesQuery = usePosInvoices(
@@ -190,11 +245,21 @@ export default function PosTerminalPage() {
     Boolean(profile && branchId && currentShift?.id && showRecentInvoices),
   );
 
-  const permissionSet = new Set(profile?.member.permissions ?? []);
-  const canDiscount = permissionSet.has(PERMISSIONS.POS_DISCOUNT_OVERRIDE);
-  const canPriceOverride = permissionSet.has(PERMISSIONS.POS_PRICE_OVERRIDE);
-
   const activeTab = tabs[activeTabIndex] ?? tabs[0]!;
+
+  const permissionSet = new Set(profile?.member.permissions ?? []);
+  const hasNativeDiscount = permissionSet.has(PERMISSIONS.POS_DISCOUNT_OVERRIDE);
+  const hasNativePrice = permissionSet.has(PERMISSIONS.POS_PRICE_OVERRIDE);
+  const canRefundDirect = permissionSet.has(PERMISSIONS.POS_REFUND);
+
+  const canDiscount =
+    hasNativeDiscount ||
+    (Boolean(activeTab.supervisorApprovalToken) &&
+      activeTab.supervisorPermission === PERMISSIONS.POS_DISCOUNT_OVERRIDE);
+  const canPriceOverride =
+    hasNativePrice ||
+    (Boolean(activeTab.supervisorApprovalToken) &&
+      activeTab.supervisorPermission === PERMISSIONS.POS_PRICE_OVERRIDE);
 
   const updateActiveTab = useCallback(
     (updater: (prev: PendingInvoiceTab) => PendingInvoiceTab) => {
@@ -329,8 +394,12 @@ export default function PosTerminalPage() {
         idempotencyKey: activeTab.idempotencyKey,
         branchId,
         shiftId: currentShift.id,
+        ...(activeTab.customerId ? { customerId: activeTab.customerId } : {}),
         discountAmount: activeTab.invoiceDiscountAmount || "0.00",
         syncSource: "ONLINE",
+        ...(activeTab.supervisorApprovalToken
+          ? { supervisorApprovalToken: activeTab.supervisorApprovalToken }
+          : {}),
         items: activeTab.items.map((line) => ({
           variantId: line.variantId,
           quantity: line.quantity,
@@ -347,13 +416,23 @@ export default function PosTerminalPage() {
         })),
       });
 
-      toast.success(`Đã thanh toán ${receipt.code}`);
+      const earnedSuffix =
+        receipt.earnedPoints && receipt.earnedPoints > 0
+          ? ` (+${receipt.earnedPoints} điểm)`
+          : "";
+      toast.success(`Đã thanh toán ${receipt.code}${earnedSuffix}`);
       setActiveReceipt(receipt);
       setReceiptModalOpen(true);
 
       updateActiveTab((prev) => ({
         ...prev,
         idempotencyKey: makeUuid(),
+        customerId: null,
+        customerName: null,
+        customerPoints: 0,
+        supervisorApprovalToken: undefined,
+        supervisorPermission: undefined,
+        supervisorApproverName: undefined,
         items: [],
         invoiceDiscountAmount: "0.00",
         payments: [{ method: "CASH", amount: "0.00", referenceNo: "" }],
@@ -362,6 +441,82 @@ export default function PosTerminalPage() {
       setCheckoutError(formatApiError(error, "Thanh toán thất bại."));
     }
   }, [activeTab, branchId, checkoutMutation, currentShift, updateActiveTab]);
+
+  async function handleQuickCreateCustomer(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setNewCustomerError(null);
+    const parsed = createCustomerSchema.safeParse({
+      name: newCustomerName,
+      phone: newCustomerPhone.trim() || null,
+    });
+    if (!parsed.success) {
+      setNewCustomerError(
+        parsed.error.issues[0]?.message ?? "Thông tin khách hàng chưa hợp lệ",
+      );
+      return;
+    }
+
+    try {
+      const created: CustomerItem = await createCustomerMutation.mutateAsync(
+        parsed.data,
+      );
+      updateActiveTab((prev) => ({
+        ...prev,
+        customerId: created.id,
+        customerName: created.name,
+        customerPoints: created.loyaltyPoints,
+      }));
+      setNewCustomerOpen(false);
+      setCustomerPickerOpen(false);
+      setNewCustomerName("");
+      setNewCustomerPhone("");
+      toast.success(`Đã thêm khách hàng ${created.name}`);
+    } catch (error) {
+      setNewCustomerError(formatApiError(error, "Không thể tạo khách hàng."));
+    }
+  }
+
+  async function handleOpenDrawerSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!branchId || !drawerReason.trim()) return;
+    try {
+      await openDrawerMutation.mutateAsync({
+        branchId,
+        reason: drawerReason.trim(),
+      });
+      toast.success("Đã ghi nhận mở két tiền vào Audit Log");
+      setDrawerReason("");
+      setDrawerDialogOpen(false);
+    } catch (error) {
+      toast.error(formatApiError(error, "Không thể mở két tiền."));
+    }
+  }
+
+  function applyLoyaltyRedeemToTab() {
+    if (!activeTab.customerId || activeTab.customerPoints <= 0) return;
+    const dueVnd = Number(cartSummary.total);
+    const maxVndFromPoints = activeTab.customerPoints * 1000;
+    const redeemableVnd = Math.min(
+      Math.floor(dueVnd / 1000) * 1000,
+      maxVndFromPoints,
+    );
+    if (redeemableVnd <= 0) {
+      toast.error("Điểm thưởng hoặc giá trị hóa đơn chưa đủ quy đổi bội số 1.000 ₫");
+      return;
+    }
+
+    const redeemAmountStr = redeemableVnd.toFixed(2);
+    const remainderStr = Math.max(0, dueVnd - redeemableVnd).toFixed(2);
+    updateActiveTab((prev) => ({
+      ...prev,
+      payments: [
+        { method: "LOYALTY_POINTS", amount: redeemAmountStr, referenceNo: "LOYALTY" },
+        ...(Number(remainderStr) > 0
+          ? [{ method: "CASH" as PaymentMethod, amount: remainderStr, referenceNo: "" }]
+          : []),
+      ],
+    }));
+  }
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -547,15 +702,26 @@ export default function PosTerminalPage() {
 
         <div className="flex items-center gap-2">
           {currentShift ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setShowRecentInvoices((prev) => !prev)}
-            >
-              <ReceiptIcon data-icon="inline-start" />
-              Hóa đơn ca
-            </Button>
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setDrawerDialogOpen(true)}
+              >
+                <KeyRoundIcon data-icon="inline-start" />
+                Mở két
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setShowRecentInvoices((prev) => !prev)}
+              >
+                <ReceiptIcon data-icon="inline-start" />
+                Hóa đơn ca
+              </Button>
+            </>
           ) : null}
 
           {canOpenDashboard ? (
@@ -586,7 +752,7 @@ export default function PosTerminalPage() {
         <section className="pos-no-print border-b bg-muted/20 px-4 py-3">
           <div className="flex flex-wrap items-center justify-between gap-2 pb-2">
             <span className="text-xs font-semibold uppercase text-muted-foreground">
-              Hóa đơn đã bán trong ca hiện tại
+              Hóa đơn trong ca hiện tại (bấm để xem / trả hàng / hủy đơn)
             </span>
             <Button
               type="button"
@@ -599,19 +765,36 @@ export default function PosTerminalPage() {
           </div>
           <div className="flex flex-wrap gap-2">
             {(recentInvoicesQuery.data?.items ?? []).map((inv) => (
-              <Button
+              <div
                 key={inv.id}
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  setActiveReceipt(inv);
-                  setReceiptModalOpen(true);
-                }}
+                className="flex items-center gap-1 rounded-md border bg-card p-1"
               >
-                <PrinterIcon data-icon="inline-start" />
-                {inv.code} · {formatVndAmount(inv.totalAmount)}
-              </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setActiveReceipt(inv);
+                    setReceiptModalOpen(true);
+                  }}
+                >
+                  <PrinterIcon data-icon="inline-start" />
+                  {inv.code} · {formatVndAmount(inv.totalAmount)}
+                  {inv.status !== "COMPLETED" ? ` (${inv.status})` : ""}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setSelectedInvoiceActionId(inv.id);
+                    setInvoiceActionOpen(true);
+                  }}
+                >
+                  <RotateCcwIcon data-icon="inline-start" />
+                  Trả / Hủy
+                </Button>
+              </div>
             ))}
             {(recentInvoicesQuery.data?.items ?? []).length === 0 ? (
               <span className="text-xs text-muted-foreground">
@@ -968,6 +1151,154 @@ export default function PosTerminalPage() {
                 </Alert>
               ) : null}
 
+              {/* CRM Customer & Loyalty Selector */}
+              <div className="flex flex-col gap-1.5 rounded-md border bg-muted/20 p-2 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-1 font-medium">
+                    <UsersIcon className="size-3.5 text-primary" />
+                    {activeTab.customerId
+                      ? `${activeTab.customerName} (${activeTab.customerPoints} điểm)`
+                      : "Khách lẻ"}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    {activeTab.customerId && activeTab.customerPoints > 0 ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        className="h-6 px-2 text-xs"
+                        onClick={applyLoyaltyRedeemToTab}
+                      >
+                        Dùng điểm
+                      </Button>
+                    ) : null}
+                    {activeTab.customerId ? (
+                      <Button
+                        type="button"
+                        size="icon-sm"
+                        variant="ghost"
+                        className="size-6"
+                        aria-label="Bỏ chọn khách hàng"
+                        onClick={() =>
+                          updateActiveTab((prev) => ({
+                            ...prev,
+                            customerId: null,
+                            customerName: null,
+                            customerPoints: 0,
+                          }))
+                        }
+                      >
+                        <XIcon className="size-3" />
+                      </Button>
+                    ) : (
+                      <>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-6 px-2 text-xs"
+                          onClick={() => setCustomerPickerOpen((v) => !v)}
+                        >
+                          Tìm KH
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 px-1.5 text-xs"
+                          onClick={() => setNewCustomerOpen(true)}
+                        >
+                          <UserPlusIcon className="size-3" />
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {customerPickerOpen ? (
+                  <div className="flex flex-col gap-1.5 pt-1">
+                    <Input
+                      className="h-7 text-xs"
+                      placeholder="Nhập SĐT hoặc tên khách hàng..."
+                      value={customerSearch}
+                      onChange={(e) => setCustomerSearch(e.target.value)}
+                    />
+                    <div className="max-h-32 divide-y overflow-y-auto rounded border bg-background">
+                      {(customersQuery.data?.items ?? []).map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          className="flex w-full items-center justify-between px-2 py-1.5 text-left hover:bg-muted/50"
+                          onClick={() => {
+                            updateActiveTab((prev) => ({
+                              ...prev,
+                              customerId: c.id,
+                              customerName: c.name,
+                              customerPoints: c.loyaltyPoints,
+                            }));
+                            setCustomerPickerOpen(false);
+                          }}
+                        >
+                          <span>
+                            {c.name} {c.phone ? `· ${c.phone}` : ""}
+                          </span>
+                          <Badge variant="outline">{c.loyaltyPoints} đ</Badge>
+                        </button>
+                      ))}
+                      {(customersQuery.data?.items ?? []).length === 0 ? (
+                        <p className="p-2 text-center text-muted-foreground">
+                          {customersQuery.isLoading
+                            ? "Đang tìm..."
+                            : "Không có khách phù hợp"}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
+              {/* Manager PIN Override Banner for Cashiers */}
+              {!hasNativePrice || !hasNativeDiscount ? (
+                <div className="flex flex-wrap items-center justify-between gap-1.5 rounded-md border border-dashed px-2 py-1.5 text-xs">
+                  <span className="flex items-center gap-1 text-muted-foreground">
+                    <ShieldCheckIcon className="size-3.5 text-primary" />
+                    {activeTab.supervisorApproverName
+                      ? `QL duyệt: ${activeTab.supervisorApproverName}`
+                      : "Sửa giá / Chiết khấu cần PIN QL"}
+                  </span>
+                  <div className="flex gap-1">
+                    {!canPriceOverride ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-6 px-2 text-xs"
+                        onClick={() => {
+                          setPinPermission(PERMISSIONS.POS_PRICE_OVERRIDE);
+                          setPinDialogOpen(true);
+                        }}
+                      >
+                        PIN Giá
+                      </Button>
+                    ) : null}
+                    {!canDiscount ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-6 px-2 text-xs"
+                        onClick={() => {
+                          setPinPermission(PERMISSIONS.POS_DISCOUNT_OVERRIDE);
+                          setPinDialogOpen(true);
+                        }}
+                      >
+                        PIN CK
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Tạm tính</span>
                 <span className="font-mono font-medium">
@@ -1236,6 +1567,136 @@ export default function PosTerminalPage() {
           void currentShiftQuery.refetch();
         }}
       />
+
+      <SupervisorPinDialog
+        branchId={branchId}
+        permission={pinPermission}
+        open={pinDialogOpen}
+        onOpenChange={setPinDialogOpen}
+        onApproved={(approval) => {
+          updateActiveTab((prev) => ({
+            ...prev,
+            supervisorApprovalToken: approval.approvalToken,
+            supervisorPermission: approval.permission,
+            supervisorApproverName: approval.approverName,
+          }));
+        }}
+      />
+
+      <InvoiceActionsDialog
+        tenantId={profile.tenant.id}
+        branchId={branchId}
+        shiftId={currentShift?.id}
+        invoiceId={selectedInvoiceActionId}
+        canRefundDirect={canRefundDirect}
+        open={invoiceActionOpen}
+        onOpenChange={setInvoiceActionOpen}
+        onPrintReceipt={(receipt) => {
+          setActiveReceipt(receipt);
+          setReceiptModalOpen(true);
+        }}
+      />
+
+      <Dialog open={newCustomerOpen} onOpenChange={setNewCustomerOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Thêm nhanh khách hàng</DialogTitle>
+            <DialogDescription>
+              Tạo hồ sơ khách hàng mới để tích lũy điểm thưởng ngay tại quầy.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            onSubmit={handleQuickCreateCustomer}
+            className="flex flex-col gap-3"
+          >
+            {newCustomerError ? (
+              <Alert variant="destructive">
+                <AlertCircleIcon />
+                <AlertDescription>{newCustomerError}</AlertDescription>
+              </Alert>
+            ) : null}
+            <FieldGroup>
+              <Field>
+                <FieldLabel htmlFor="pos-cust-name">Tên khách hàng</FieldLabel>
+                <Input
+                  id="pos-cust-name"
+                  placeholder="Nguyễn Văn A"
+                  value={newCustomerName}
+                  onChange={(e) => setNewCustomerName(e.target.value)}
+                  required
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="pos-cust-phone">Số điện thoại</FieldLabel>
+                <Input
+                  id="pos-cust-phone"
+                  placeholder="0905123456"
+                  value={newCustomerPhone}
+                  onChange={(e) => setNewCustomerPhone(e.target.value)}
+                />
+              </Field>
+            </FieldGroup>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setNewCustomerOpen(false)}
+              >
+                Hủy
+              </Button>
+              <Button type="submit" disabled={createCustomerMutation.isPending}>
+                {createCustomerMutation.isPending
+                  ? "Đang lưu..."
+                  : "Lưu & Chọn khách"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={drawerDialogOpen} onOpenChange={setDrawerDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Mở két tiền ngoài giao dịch</DialogTitle>
+            <DialogDescription>
+              Thao tác này sẽ được lưu bất biến vào Nhật ký kiểm toán (Audit Log).
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            onSubmit={handleOpenDrawerSubmit}
+            className="flex flex-col gap-3"
+          >
+            <FieldGroup>
+              <Field>
+                <FieldLabel htmlFor="pos-drawer-reason">
+                  Lý do mở két tiền
+                </FieldLabel>
+                <Input
+                  id="pos-drawer-reason"
+                  placeholder="VD: Đổi tiền lẻ / Kiểm tra tiền két"
+                  value={drawerReason}
+                  onChange={(e) => setDrawerReason(e.target.value)}
+                  required
+                />
+              </Field>
+            </FieldGroup>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setDrawerDialogOpen(false)}
+              >
+                Hủy
+              </Button>
+              <Button type="submit" disabled={openDrawerMutation.isPending}>
+                {openDrawerMutation.isPending
+                  ? "Đang ghi nhận..."
+                  : "Xác nhận mở két"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -1,14 +1,21 @@
 "use client";
 
 import type {
+  CashDrawerOpenInput,
   CloseShiftInput,
   CreateInvoiceInput,
+  CreateSalesReturnInput,
+  InvoiceDetailResponse,
   InvoiceReceiptResponse,
   OpenShiftInput,
   PosCatalogSyncResponse,
   PosStockStreamEvent,
   RegisterShiftItem,
+  SalesReturnResponse,
   ShiftZReportResponse,
+  SupervisorApprovalResponse,
+  SupervisorPinVerifyInput,
+  VoidInvoiceInput,
 } from "@smart-pos/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -21,6 +28,8 @@ import {
   writeCachedPosCatalog,
 } from "@/lib/pos-indexeddb";
 import { inventoryKeys } from "./use-inventory";
+import { customerKeys } from "./use-customers";
+import { reportKeys } from "./use-reports";
 
 export const posKeys = {
   all: ["pos"] as const,
@@ -31,6 +40,10 @@ export const posKeys = {
   zReport: (shiftId: string) => [...posKeys.all, "z-report", shiftId] as const,
   invoices: (branchId: string, shiftId?: string) =>
     [...posKeys.all, "invoices", branchId, shiftId ?? "all"] as const,
+  invoiceDetail: (invoiceId: string) =>
+    [...posKeys.all, "invoice-detail", invoiceId] as const,
+  returns: (branchId?: string) =>
+    [...posKeys.all, "returns", branchId ?? "all"] as const,
 };
 
 export function usePosCatalog(
@@ -202,11 +215,129 @@ export function usePosCheckout(tenantId: string | undefined) {
         queryKey: posKeys.invoices(receipt.branchId, receipt.shiftId),
       });
       void queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
+      void queryClient.invalidateQueries({ queryKey: customerKeys.all });
+      void queryClient.invalidateQueries({ queryKey: reportKeys.all });
       if (tenantId) {
         void queryClient.invalidateQueries({
           queryKey: posKeys.catalog(tenantId, receipt.branchId),
         });
       }
+    },
+  });
+}
+
+export function useSupervisorApprove() {
+  return useMutation({
+    mutationFn: (input: SupervisorPinVerifyInput) =>
+      apiFetch<SupervisorApprovalResponse>("/pos/supervisor-approve", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+  });
+}
+
+export function useInvoiceDetail(invoiceId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: posKeys.invoiceDetail(invoiceId ?? ""),
+    enabled: Boolean(invoiceId && enabled),
+    queryFn: () => apiFetch<InvoiceDetailResponse>(`/pos/invoices/${invoiceId}`),
+  });
+}
+
+export function useCreateSalesReturn(tenantId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      invoiceId,
+      data,
+    }: {
+      invoiceId: string;
+      data: CreateSalesReturnInput;
+    }) =>
+      apiFetch<SalesReturnResponse>(`/pos/invoices/${invoiceId}/returns`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    onSuccess: (ret) => {
+      void queryClient.invalidateQueries({
+        queryKey: posKeys.invoiceDetail(ret.invoiceId),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: posKeys.currentShift(ret.branchId),
+      });
+      void queryClient.invalidateQueries({ queryKey: posKeys.all });
+      void queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
+      void queryClient.invalidateQueries({ queryKey: customerKeys.all });
+      void queryClient.invalidateQueries({ queryKey: reportKeys.all });
+      if (tenantId) {
+        void queryClient.invalidateQueries({
+          queryKey: posKeys.catalog(tenantId, ret.branchId),
+        });
+      }
+    },
+  });
+}
+
+export function useVoidInvoice(tenantId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      invoiceId,
+      data,
+    }: {
+      invoiceId: string;
+      data: VoidInvoiceInput;
+    }) =>
+      apiFetch<InvoiceReceiptResponse>(`/pos/invoices/${invoiceId}/void`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    onSuccess: (receipt) => {
+      void queryClient.invalidateQueries({
+        queryKey: posKeys.invoiceDetail(receipt.id),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: posKeys.currentShift(receipt.branchId),
+      });
+      void queryClient.invalidateQueries({ queryKey: posKeys.all });
+      void queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
+      void queryClient.invalidateQueries({ queryKey: customerKeys.all });
+      void queryClient.invalidateQueries({ queryKey: reportKeys.all });
+      if (tenantId) {
+        void queryClient.invalidateQueries({
+          queryKey: posKeys.catalog(tenantId, receipt.branchId),
+        });
+      }
+    },
+  });
+}
+
+export function useSalesReturns(branchId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: posKeys.returns(branchId),
+    enabled,
+    queryFn: () => {
+      const sp = new URLSearchParams();
+      if (branchId) sp.set("branchId", branchId);
+      sp.set("limit", "30");
+      return apiFetch<{
+        items: SalesReturnResponse[];
+        pagination: { page: number; limit: number; total: number; totalPages: number };
+      }>(`/pos/returns?${sp.toString()}`);
+    },
+  });
+}
+
+export function useOpenCashDrawer() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CashDrawerOpenInput) =>
+      apiFetch<{ ok: true }>("/pos/cash-drawer/open", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: reportKeys.all });
     },
   });
 }
