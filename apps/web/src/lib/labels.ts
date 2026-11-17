@@ -36,6 +36,25 @@ export const REPORT_EXPORT_TYPE_LABELS: Record<ReportExportType, string> = {
   SALES_DETAIL: "Chi tiết hóa đơn bán hàng",
   INVENTORY_LEDGER: "Thẻ kho chi tiết",
   DAILY_SUMMARY: "Tổng hợp doanh thu theo ngày",
+  ACCOUNTING_LEDGER: "Sổ kế toán tổng hợp (3 sheet)",
+};
+
+export const WEBHOOK_DELIVERY_STATUS_LABELS: Record<
+  "PENDING" | "DELIVERED" | "FAILED",
+  string
+> = {
+  PENDING: "Đang gửi",
+  DELIVERED: "Thành công",
+  FAILED: "Thất bại",
+};
+
+export const BILLING_STATUS_LABELS: Record<
+  "PENDING" | "PAID" | "FAILED",
+  string
+> = {
+  PENDING: "Chờ thanh toán",
+  PAID: "Đã thanh toán",
+  FAILED: "Thất bại",
 };
 
 export const AUDIT_ACTION_LABELS: Record<AuditActionType, string> = {
@@ -53,6 +72,12 @@ export const AUDIT_ACTION_LABELS: Record<AuditActionType, string> = {
   TRANSFER_DISPATCHED: "Xuất chuyển kho",
   TRANSFER_RECEIVED: "Nhận chuyển kho",
   CUSTOMER_LOYALTY_ADJUST: "Điều chỉnh điểm Loyalty",
+  PLAN_UPGRADED: "Nâng cấp / gia hạn gói SaaS",
+  API_KEY_CREATED: "Tạo API Key tích hợp",
+  API_KEY_REVOKED: "Thu hồi API Key",
+  WEBHOOK_CREATED: "Tạo Webhook Endpoint",
+  WEBHOOK_REVOKED: "Xóa Webhook Endpoint",
+  EXTERNAL_ORDER_SYNCED: "Đồng bộ đơn hàng TMĐT",
 };
 
 export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
@@ -126,6 +151,8 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "staff:manage": "Quản lý nhân viên & phân quyền",
   "branch:manage": "Quản lý chi nhánh",
   "audit:view": "Xem nhật ký kiểm toán",
+  "billing:manage": "Quản lý gói SaaS & Thanh toán",
+  "integration:manage": "Quản lý API Key & Webhook TMĐT",
 };
 
 /** Generate an ASCII URL-safe tenant slug from a Vietnamese shop name. */

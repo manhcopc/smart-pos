@@ -7,6 +7,8 @@ import type {
   CreateSalesReturnInput,
   InvoiceDetailResponse,
   InvoiceReceiptResponse,
+  OfflineSyncBatchInput,
+  OfflineSyncBatchResponse,
   OpenShiftInput,
   PosCatalogSyncResponse,
   PosStockStreamEvent,
@@ -211,9 +213,11 @@ export function usePosCheckout(tenantId: string | undefined) {
       void queryClient.invalidateQueries({
         queryKey: posKeys.currentShift(receipt.branchId),
       });
-      void queryClient.invalidateQueries({
-        queryKey: posKeys.invoices(receipt.branchId, receipt.shiftId),
-      });
+      if (receipt.shiftId) {
+        void queryClient.invalidateQueries({
+          queryKey: posKeys.invoices(receipt.branchId, receipt.shiftId),
+        });
+      }
       void queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
       void queryClient.invalidateQueries({ queryKey: customerKeys.all });
       void queryClient.invalidateQueries({ queryKey: reportKeys.all });
@@ -221,6 +225,31 @@ export function usePosCheckout(tenantId: string | undefined) {
         void queryClient.invalidateQueries({
           queryKey: posKeys.catalog(tenantId, receipt.branchId),
         });
+      }
+    },
+  });
+}
+
+export function useOfflineSyncInvoices(tenantId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: OfflineSyncBatchInput) =>
+      apiFetch<OfflineSyncBatchResponse>("/pos/offline-sync/invoices", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    onSuccess: (_res, variables) => {
+      void queryClient.invalidateQueries({ queryKey: posKeys.all });
+      void queryClient.invalidateQueries({ queryKey: inventoryKeys.all });
+      void queryClient.invalidateQueries({ queryKey: customerKeys.all });
+      void queryClient.invalidateQueries({ queryKey: reportKeys.all });
+      if (tenantId) {
+        const branches = new Set(variables.invoices.map((i) => i.payload.branchId));
+        for (const bId of branches) {
+          void queryClient.invalidateQueries({
+            queryKey: posKeys.catalog(tenantId, bId),
+          });
+        }
       }
     },
   });

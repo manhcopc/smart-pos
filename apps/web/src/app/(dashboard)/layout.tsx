@@ -7,6 +7,7 @@ import {
   BoxesIcon,
   Building2Icon,
   ClipboardCheckIcon,
+  CreditCardIcon,
   LayoutDashboardIcon,
   LogOutIcon,
   PackagePlusIcon,
@@ -16,6 +17,7 @@ import {
   UserCheckIcon,
   UsersIcon,
   WarehouseIcon,
+  WebhookIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -96,6 +98,18 @@ const NAV_ITEMS: readonly NavItem[] = [
     label: "Nhân viên & RBAC",
     icon: UsersIcon,
     requiredPermission: PERMISSIONS.STAFF_MANAGE,
+  },
+  {
+    href: "/dashboard/integrations",
+    label: "Tích hợp & Kế toán",
+    icon: WebhookIcon,
+    requiredPermission: PERMISSIONS.INTEGRATION_MANAGE,
+  },
+  {
+    href: "/dashboard/billing",
+    label: "Gói SaaS & Thanh toán",
+    icon: CreditCardIcon,
+    requiredPermission: PERMISSIONS.BRANCH_MANAGE,
   },
 ];
 

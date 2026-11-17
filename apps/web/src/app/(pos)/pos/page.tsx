@@ -15,6 +15,7 @@ import {
 import {
   AlertCircleIcon,
   CheckCircle2Icon,
+  CloudOffIcon,
   CreditCardIcon,
   KeyRoundIcon,
   LayoutDashboardIcon,
@@ -35,11 +36,13 @@ import {
   WifiOffIcon,
   XIcon,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { InvoiceActionsDialog } from "@/components/pos/invoice-actions-dialog";
+import { OfflineQueueDialog } from "@/components/pos/offline-queue-dialog";
 import { ShiftZReportDialog } from "@/components/pos/shift-z-report-dialog";
 import { SupervisorPinDialog } from "@/components/pos/supervisor-pin-dialog";
 import { ThermalReceiptDialog } from "@/components/pos/thermal-receipt-dialog";
@@ -76,20 +79,36 @@ import { Separator } from "@/components/ui/separator";
 import { useLogout, useMe } from "@/hooks/use-auth";
 import { useCreateCustomer, useCustomers } from "@/hooks/use-customers";
 import {
+  posKeys,
   useCurrentShift,
+  useOfflineSyncInvoices,
   useOpenCashDrawer,
   useOpenShift,
   usePosCatalog,
   usePosCheckout,
   usePosInvoices,
 } from "@/hooks/use-pos";
-import { formatApiError } from "@/lib/api-client";
+import { ApiClientError, formatApiError } from "@/lib/api-client";
 import {
   formatVndAmount,
   PAYMENT_METHOD_LABELS,
   ROLE_LABELS,
 } from "@/lib/labels";
-import { searchPosCatalog } from "@/lib/pos-indexeddb";
+import {
+  type CachedPosCatalog,
+  searchPosCatalog,
+  writeCachedPosCatalog,
+} from "@/lib/pos-indexeddb";
+import {
+  applyLocalOfflineSale,
+  buildLocalOfflineReceipt,
+  buildOfflineQueueEntry,
+  enqueueOfflineInvoice,
+  type QueuedOfflineInvoice,
+  readOfflineInvoiceQueue,
+  removeOfflineInvoiceFromQueue,
+  updateOfflineInvoiceQueueEntry,
+} from "@/lib/pos-offline-queue";
 
 interface CartLineState {
   variantId: string;
@@ -198,8 +217,29 @@ export default function PosTerminalPage() {
   const [newCustomerPhone, setNewCustomerPhone] = useState("");
   const [newCustomerError, setNewCustomerError] = useState<string | null>(null);
 
+  const queryClient = useQueryClient();
   const [drawerDialogOpen, setDrawerDialogOpen] = useState(false);
   const [drawerReason, setDrawerReason] = useState("");
+  const [navigatorOnline, setNavigatorOnline] = useState(() =>
+    typeof navigator !== "undefined" ? navigator.onLine : true,
+  );
+  const [manualOfflineMode, setManualOfflineMode] = useState(false);
+  const [offlineQueue, setOfflineQueue] = useState<QueuedOfflineInvoice[]>([]);
+  const [offlineQueueDialogOpen, setOfflineQueueDialogOpen] = useState(false);
+  const syncingOfflineRef = useRef(false);
+
+  const isEffectivelyOnline = navigatorOnline && !manualOfflineMode;
+
+  useEffect(() => {
+    const onOnline = () => setNavigatorOnline(true);
+    const onOffline = () => setNavigatorOnline(false);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+  }, []);
 
   const profile = meQuery.data;
 
@@ -230,8 +270,94 @@ export default function PosTerminalPage() {
   const currentShiftQuery = useCurrentShift(branchId, Boolean(profile && branchId));
   const openShiftMutation = useOpenShift();
   const checkoutMutation = usePosCheckout(profile?.tenant.id);
+  const offlineSyncMutation = useOfflineSyncInvoices(profile?.tenant.id);
   const createCustomerMutation = useCreateCustomer();
   const openDrawerMutation = useOpenCashDrawer();
+
+  const refreshOfflineQueue = useCallback(async () => {
+    if (!profile?.tenant.id || !branchId) return;
+    const items = await readOfflineInvoiceQueue(profile.tenant.id, branchId);
+    setOfflineQueue(items);
+  }, [branchId, profile?.tenant.id]);
+
+  useEffect(() => {
+    void refreshOfflineQueue();
+  }, [refreshOfflineQueue]);
+
+  const handleSyncOfflineEntries = useCallback(
+    async (entriesToSync: QueuedOfflineInvoice[]) => {
+      if (
+        !profile?.tenant.id ||
+        !isEffectivelyOnline ||
+        entriesToSync.length === 0 ||
+        syncingOfflineRef.current
+      ) {
+        return;
+      }
+
+      syncingOfflineRef.current = true;
+      try {
+        const res = await offlineSyncMutation.mutateAsync({
+          invoices: entriesToSync.map((entry) => ({
+            queuedAt: entry.queuedAt,
+            payload: entry.payload,
+          })),
+        });
+
+        for (const outcome of res.results) {
+          if (outcome.status === "SYNCED") {
+            await removeOfflineInvoiceFromQueue(outcome.idempotencyKey);
+          } else if (outcome.status === "CONFLICT") {
+            await updateOfflineInvoiceQueueEntry(outcome.idempotencyKey, {
+              status: "CONFLICT",
+              errorCode: outcome.errorCode,
+              errorMessage: outcome.message,
+              latestStock: outcome.latestStock,
+            });
+          } else {
+            await updateOfflineInvoiceQueueEntry(outcome.idempotencyKey, {
+              status: "FAILED",
+              errorCode: outcome.errorCode,
+              errorMessage: outcome.message,
+            });
+          }
+        }
+
+        await refreshOfflineQueue();
+
+        if (res.summary.synced > 0) {
+          toast.success(
+            `Đã đồng bộ ${res.summary.synced} hóa đơn offline lên máy chủ`,
+          );
+        }
+        if (res.summary.conflicts > 0 || res.summary.failed > 0) {
+          toast.error(
+            `Có ${res.summary.conflicts} xung đột và ${res.summary.failed} lỗi cần xử lý`,
+          );
+          setReceiptModalOpen(false);
+          setOfflineQueueDialogOpen(true);
+        }
+      } catch (error) {
+        toast.error(formatApiError(error, "Không thể đồng bộ hàng đợi Offline."));
+      } finally {
+        syncingOfflineRef.current = false;
+      }
+    },
+    [
+      isEffectivelyOnline,
+      offlineSyncMutation,
+      profile?.tenant.id,
+      refreshOfflineQueue,
+    ],
+  );
+
+  useEffect(() => {
+    if (!isEffectivelyOnline) return;
+    const pending = offlineQueue.filter((e) => e.status === "PENDING");
+    if (pending.length > 0 && !syncingOfflineRef.current) {
+      void handleSyncOfflineEntries(pending);
+    }
+  }, [handleSyncOfflineEntries, isEffectivelyOnline, offlineQueue]);
 
   const customersQuery = useCustomers(
     { search: customerSearch, limit: 10 },
@@ -378,6 +504,85 @@ export default function PosTerminalPage() {
     }
   }, [activeTab.items, activeTab.invoiceDiscountAmount]);
 
+  const queueOfflineAndShowReceipt = useCallback(
+    async (payload: Parameters<typeof checkoutMutation.mutateAsync>[0]) => {
+      if (!profile || !activeBranch || !currentShift) return;
+
+      const entry = buildOfflineQueueEntry({
+        tenantId: profile.tenant.id,
+        customerName: activeTab.customerName,
+        payload,
+        itemSummaries: activeTab.items.map((line) => ({
+          variantId: line.variantId,
+          sku: line.sku,
+          name: line.name,
+          quantity: line.quantity,
+          unitPrice: line.overrideUnitPrice ?? line.catalogPrice,
+          discountAmount: line.discountAmount || "0.00",
+          taxRate: line.taxRate,
+          lineTotal: "0.00",
+        })),
+      });
+
+      await enqueueOfflineInvoice(entry);
+      const currentCatalog = queryClient.getQueryData<CachedPosCatalog>(
+        posKeys.catalog(profile.tenant.id, activeBranch.id),
+      );
+      if (currentCatalog) {
+        const patched = applyLocalOfflineSale(
+          currentCatalog,
+          activeTab.items.map((line) => ({
+            variantId: line.variantId,
+            quantity: line.quantity,
+          })),
+        );
+        queryClient.setQueryData(
+          posKeys.catalog(profile.tenant.id, activeBranch.id),
+          patched,
+        );
+        void writeCachedPosCatalog(patched);
+      }
+
+      await refreshOfflineQueue();
+      const localReceipt = buildLocalOfflineReceipt(
+        entry,
+        activeBranch.code,
+        activeBranch.name,
+        profile.member.id,
+        profile.user.fullName,
+      );
+      toast.warning(
+        `Đã lưu tạm hóa đơn ${entry.localReceiptCode} vào hàng đợi Offline`,
+      );
+      setActiveReceipt(localReceipt);
+      setReceiptModalOpen(true);
+
+      updateActiveTab((prev) => ({
+        ...prev,
+        idempotencyKey: makeUuid(),
+        customerId: null,
+        customerName: null,
+        customerPoints: 0,
+        supervisorApprovalToken: undefined,
+        supervisorPermission: undefined,
+        supervisorApproverName: undefined,
+        items: [],
+        invoiceDiscountAmount: "0.00",
+        payments: [{ method: "CASH", amount: "0.00", referenceNo: "" }],
+      }));
+    },
+    [
+      activeBranch,
+      activeTab.customerName,
+      activeTab.items,
+      currentShift,
+      profile,
+      queryClient,
+      refreshOfflineQueue,
+      updateActiveTab,
+    ],
+  );
+
   const handleCheckout = useCallback(async () => {
     if (!branchId || !currentShift) {
       setCheckoutError("Vui lòng mở ca thu ngân trước khi thanh toán.");
@@ -389,32 +594,49 @@ export default function PosTerminalPage() {
     }
     setCheckoutError(null);
 
-    try {
-      const receipt = await checkoutMutation.mutateAsync({
-        idempotencyKey: activeTab.idempotencyKey,
-        branchId,
-        shiftId: currentShift.id,
-        ...(activeTab.customerId ? { customerId: activeTab.customerId } : {}),
-        discountAmount: activeTab.invoiceDiscountAmount || "0.00",
-        syncSource: "ONLINE",
-        ...(activeTab.supervisorApprovalToken
-          ? { supervisorApprovalToken: activeTab.supervisorApprovalToken }
+    const checkoutPayload = {
+      idempotencyKey: activeTab.idempotencyKey,
+      branchId,
+      shiftId: currentShift.id,
+      ...(activeTab.customerId ? { customerId: activeTab.customerId } : {}),
+      discountAmount: activeTab.invoiceDiscountAmount || "0.00",
+      syncSource: "ONLINE" as const,
+      ...(activeTab.supervisorApprovalToken
+        ? { supervisorApprovalToken: activeTab.supervisorApprovalToken }
+        : {}),
+      items: activeTab.items.map((line) => ({
+        variantId: line.variantId,
+        quantity: line.quantity,
+        discountAmount: line.discountAmount || "0.00",
+        ...(line.overrideUnitPrice !== undefined &&
+        line.overrideUnitPrice !== line.catalogPrice
+          ? { overrideUnitPrice: line.overrideUnitPrice }
           : {}),
-        items: activeTab.items.map((line) => ({
-          variantId: line.variantId,
-          quantity: line.quantity,
-          discountAmount: line.discountAmount || "0.00",
-          ...(line.overrideUnitPrice !== undefined &&
-          line.overrideUnitPrice !== line.catalogPrice
-            ? { overrideUnitPrice: line.overrideUnitPrice }
-            : {}),
-        })),
-        payments: activeTab.payments.map((p) => ({
-          method: p.method,
-          amount: p.amount || "0.00",
-          ...(p.referenceNo.trim() ? { referenceNo: p.referenceNo.trim() } : {}),
-        })),
-      });
+      })),
+      payments: activeTab.payments.map((p) => ({
+        method: p.method,
+        amount: p.amount || "0.00",
+        ...(p.referenceNo.trim() ? { referenceNo: p.referenceNo.trim() } : {}),
+      })),
+    };
+
+    if (!isEffectivelyOnline) {
+      if (activeTab.payments.some((p) => p.method === "LOYALTY_POINTS")) {
+        setCheckoutError(
+          "Không thể trừ điểm Loyalty khi đang Offline. Vui lòng đổi sang Tiền mặt hoặc Chuyển khoản.",
+        );
+        return;
+      }
+      try {
+        await queueOfflineAndShowReceipt(checkoutPayload);
+      } catch (err) {
+        setCheckoutError(formatApiError(err, "Số tiền thanh toán chưa đủ."));
+      }
+      return;
+    }
+
+    try {
+      const receipt = await checkoutMutation.mutateAsync(checkoutPayload);
 
       const earnedSuffix =
         receipt.earnedPoints && receipt.earnedPoints > 0
@@ -438,9 +660,31 @@ export default function PosTerminalPage() {
         payments: [{ method: "CASH", amount: "0.00", referenceNo: "" }],
       }));
     } catch (error) {
+      const isNetworkFailure =
+        !(error instanceof ApiClientError) ||
+        (typeof navigator !== "undefined" && !navigator.onLine);
+      if (
+        isNetworkFailure &&
+        !activeTab.payments.some((p) => p.method === "LOYALTY_POINTS")
+      ) {
+        try {
+          await queueOfflineAndShowReceipt(checkoutPayload);
+          return;
+        } catch {
+          // Fall back to regular error display below.
+        }
+      }
       setCheckoutError(formatApiError(error, "Thanh toán thất bại."));
     }
-  }, [activeTab, branchId, checkoutMutation, currentShift, updateActiveTab]);
+  }, [
+    activeTab,
+    branchId,
+    checkoutMutation,
+    currentShift,
+    isEffectivelyOnline,
+    queueOfflineAndShowReceipt,
+    updateActiveTab,
+  ]);
 
   async function handleQuickCreateCustomer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -652,16 +896,54 @@ export default function PosTerminalPage() {
           ) : null}
 
           <Badge
-            variant={catalogQuery.sseConnected ? "secondary" : "outline"}
+            variant={
+              !isEffectivelyOnline
+                ? "destructive"
+                : catalogQuery.sseConnected
+                  ? "secondary"
+                  : "outline"
+            }
             className="gap-1"
           >
-            {catalogQuery.sseConnected ? (
+            {!isEffectivelyOnline ? (
+              <CloudOffIcon className="size-3" />
+            ) : catalogQuery.sseConnected ? (
               <WifiIcon className="size-3" />
             ) : (
               <WifiOffIcon className="size-3" />
             )}
-            {catalogQuery.sseConnected ? "Realtime Kho" : "Cache Cục bộ"}
+            {!isEffectivelyOnline
+              ? "Đang Offline"
+              : catalogQuery.sseConnected
+                ? "Realtime Kho"
+                : "Cache Cục bộ"}
           </Badge>
+
+          <Button
+            type="button"
+            size="sm"
+            variant={manualOfflineMode ? "destructive" : "ghost"}
+            aria-label="Chuyển chế độ Offline"
+            onClick={() => setManualOfflineMode((prev) => !prev)}
+          >
+            {manualOfflineMode ? "Bật Online" : "Giả lập Offline"}
+          </Button>
+
+          {offlineQueue.length > 0 ? (
+            <Button
+              type="button"
+              size="sm"
+              variant={
+                offlineQueue.some((e) => e.status !== "PENDING")
+                  ? "destructive"
+                  : "outline"
+              }
+              onClick={() => setOfflineQueueDialogOpen(true)}
+            >
+              <CloudOffIcon data-icon="inline-start" />
+              Hàng đợi Offline ({offlineQueue.length})
+            </Button>
+          ) : null}
 
           {currentShift ? (
             <Button
@@ -1594,6 +1876,30 @@ export default function PosTerminalPage() {
         onPrintReceipt={(receipt) => {
           setActiveReceipt(receipt);
           setReceiptModalOpen(true);
+        }}
+      />
+
+      <OfflineQueueDialog
+        open={offlineQueueDialogOpen}
+        onOpenChange={setOfflineQueueDialogOpen}
+        entries={offlineQueue}
+        isOnline={isEffectivelyOnline}
+        isSyncing={offlineSyncMutation.isPending}
+        currentShiftId={currentShift?.id ?? null}
+        onSyncEntries={handleSyncOfflineEntries}
+        onResolveEntry={async (updatedEntry) => {
+          await updateOfflineInvoiceQueueEntry(
+            updatedEntry.idempotencyKey,
+            updatedEntry,
+          );
+          await refreshOfflineQueue();
+          if (isEffectivelyOnline) {
+            await handleSyncOfflineEntries([updatedEntry]);
+          }
+        }}
+        onDiscardEntry={async (idempotencyKey) => {
+          await removeOfflineInvoiceFromQueue(idempotencyKey);
+          await refreshOfflineQueue();
         }}
       />
 

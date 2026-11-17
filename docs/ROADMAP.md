@@ -39,6 +39,6 @@ Lộ trình chia theo từng giai đoạn tăng trưởng thực tế, bám sát
 - [x] **BullMQ Worker (Redis):** Xuất báo cáo Excel dung lượng lớn chạy nền, Chuyển kho liên chi nhánh.
 
 ## Phase 5: Offline-First nâng cao, Gói SaaS & Tích hợp (Mở rộng)
-- [ ] Hàng đợi đơn hàng Offline trên `IndexedDB` khi rớt mạng hoàn toàn + tự động đồng bộ & giải quyết xung đột khi online.
-- [ ] Quản lý gói SaaS (`LITE` / `PRO`, dùng thử 14–30 ngày, giới hạn quota chi nhánh/SKU/nhân viên).
-- [ ] API/Webhook đồng bộ tồn kho với sàn TMĐT / Website bán hàng & Export kế toán.
+- [x] Hàng đợi đơn hàng Offline trên `IndexedDB` khi rớt mạng hoàn toàn + tự động đồng bộ & giải quyết xung đột khi online.
+- [x] Quản lý gói SaaS (`LITE` / `PRO`, dùng thử 14–30 ngày, giới hạn quota chi nhánh/SKU/nhân viên).
+- [x] API/Webhook đồng bộ tồn kho với sàn TMĐT / Website bán hàng & Export kế toán.
