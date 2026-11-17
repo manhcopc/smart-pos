@@ -3,7 +3,10 @@ import {
   cashierPinLoginSchema,
   createBranchSchema,
   createInvoiceSchema,
+  createProductSchema,
+  createPurchaseOrderSchema,
   createStaffMemberSchema,
+  createStockCountSchema,
   registerTenantSchema,
   updateBranchSchema,
 } from "../index";
@@ -83,5 +86,37 @@ describe("shared Zod schemas", () => {
       ],
     });
     expect(valid.success).toBe(true);
+  });
+
+  it("validates Phase 2 catalog, purchase order, and stock count duplicate guards", () => {
+    const dupSku = createProductSchema.safeParse({
+      name: "Áo thun",
+      variants: [
+        { sku: "AT-01", name: "Đen M", costPrice: "50000", salePrice: "99000" },
+        { sku: "at-01", name: "Trắng L", costPrice: "50000", salePrice: "99000" },
+      ],
+    });
+    expect(dupSku.success).toBe(false);
+
+    const dupPo = createPurchaseOrderSchema.safeParse({
+      branchId: "550e8400-e29b-41d4-a716-446655440001",
+      items: [
+        { variantId: "550e8400-e29b-41d4-a716-446655440010", orderedQty: "5", unitCost: "10000" },
+        { variantId: "550e8400-e29b-41d4-a716-446655440010", orderedQty: "3", unitCost: "12000" },
+      ],
+    });
+    expect(dupPo.success).toBe(false);
+
+    const validSc = createStockCountSchema.safeParse({
+      branchId: "550e8400-e29b-41d4-a716-446655440001",
+      items: [
+        {
+          variantId: "550e8400-e29b-41d4-a716-446655440010",
+          actualQty: "12.5",
+          reason: "Hư hỏng bao bì",
+        },
+      ],
+    });
+    expect(validSc.success).toBe(true);
   });
 });

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  calculateEffectiveIncomingUnitCost,
   calculateLineSubtotal,
   calculatePercentAmount,
   calculateWeightedAverageCost,
@@ -46,5 +47,22 @@ describe("fixed-point money and inventory math", () => {
     expect(() => parseMoney(Number.NaN)).toThrow(RangeError);
     expect(() => parseMoney("10.123")).toThrow(RangeError);
     expect(() => parseQuantity("1.2345")).toThrow(RangeError);
+  });
+
+  it("computes effective incoming unit cost after line discount and handles negative pre-stock clamp", () => {
+    const effective = calculateEffectiveIncomingUnitCost(
+      parseQuantity("10"),
+      parseMoney("20000"),
+      parseMoney("10000"),
+    );
+    expect(formatMoney(effective)).toBe("19000.00");
+
+    const nextAvg = calculateWeightedAverageCost(
+      parseQuantity("-2"),
+      parseMoney("50000"),
+      parseQuantity("5"),
+      effective,
+    );
+    expect(formatMoney(nextAvg)).toBe("19000.00");
   });
 });

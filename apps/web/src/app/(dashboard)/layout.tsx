@@ -4,11 +4,14 @@ import { PERMISSIONS } from "@smart-pos/shared";
 import {
   BoxesIcon,
   Building2Icon,
+  ClipboardCheckIcon,
   LayoutDashboardIcon,
   LogOutIcon,
+  PackagePlusIcon,
   ScanBarcodeIcon,
   StoreIcon,
   UsersIcon,
+  WarehouseIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -30,6 +33,30 @@ interface NavItem {
 
 const NAV_ITEMS: readonly NavItem[] = [
   { href: "/dashboard", label: "Tổng quan", icon: LayoutDashboardIcon },
+  {
+    href: "/dashboard/products",
+    label: "Hàng hóa & Mã vạch",
+    icon: BoxesIcon,
+    requiredPermission: PERMISSIONS.INVENTORY_VIEW,
+  },
+  {
+    href: "/dashboard/inventory",
+    label: "Tồn kho & Thẻ kho",
+    icon: WarehouseIcon,
+    requiredPermission: PERMISSIONS.INVENTORY_VIEW,
+  },
+  {
+    href: "/dashboard/purchase-orders",
+    label: "Nhập hàng & NCC",
+    icon: PackagePlusIcon,
+    requiredPermission: PERMISSIONS.INVENTORY_RECEIVE,
+  },
+  {
+    href: "/dashboard/stock-counts",
+    label: "Kiểm kho",
+    icon: ClipboardCheckIcon,
+    requiredPermission: PERMISSIONS.INVENTORY_COUNT,
+  },
   {
     href: "/dashboard/branches",
     label: "Chi nhánh",
@@ -161,15 +188,6 @@ export default function DashboardLayout({
               </Button>
             );
           })}
-
-          <Button
-            variant="ghost"
-            className="justify-start text-muted-foreground"
-            disabled
-          >
-            <BoxesIcon data-icon="inline-start" />
-            Hàng hóa &amp; Kho (Phase 2)
-          </Button>
         </nav>
 
         <div className="mt-auto flex flex-col gap-3">
