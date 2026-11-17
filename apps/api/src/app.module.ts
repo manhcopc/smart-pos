@@ -7,6 +7,7 @@ import { RateLimitModule } from "./common/rate-limit/rate-limit.module";
 import { validateEnv } from "./config/env";
 import { HealthModule } from "./health/health.module";
 import { InventoryModule } from "./inventory/inventory.module";
+import { PosModule } from "./pos/pos.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { RedisModule } from "./redis/redis.module";
 import { StaffModule } from "./staff/staff.module";
@@ -26,6 +27,7 @@ import { StaffModule } from "./staff/staff.module";
     StaffModule,
     CatalogModule,
     InventoryModule,
+    PosModule,
     HealthModule,
   ],
 })

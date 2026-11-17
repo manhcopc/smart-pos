@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  Optional,
 } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import {
@@ -22,6 +23,7 @@ import {
 } from "@smart-pos/shared";
 import type { AuthenticatedContext } from "../auth/auth.types";
 import { assertBranchAccessibleInTx } from "../common/tenant/tenant-quota.helper";
+import { PosEventsService } from "../pos/pos-events.service";
 import { PrismaService } from "../prisma/prisma.service";
 import {
   generateDocumentCode,
@@ -59,7 +61,10 @@ type PoRow = Prisma.PurchaseOrderGetPayload<{ select: typeof PO_SELECT }>;
 
 @Injectable()
 export class PurchaseOrdersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly posEvents?: PosEventsService,
+  ) {}
 
   async list(
     auth: AuthenticatedContext,
@@ -167,7 +172,10 @@ export class PurchaseOrdersService {
       });
     }
 
-    return this.prisma.withTenantTransaction(
+    const outcome = await this.prisma.withTenantTransaction<{
+      response: PurchaseOrderItemResponse;
+      stockUpdates: Array<{ variantId: string; onHand: string; available: string }>;
+    }>(
       auth.tenantId,
       async (tx) => {
         await assertBranchAccessibleInTx(tx, auth, input.branchId);
@@ -239,10 +247,20 @@ export class PurchaseOrdersService {
           });
         }
 
-        return this.serialize(created);
+        return { response: this.serialize(created), stockUpdates: [] };
       },
       { isolationLevel: "RepeatableRead" },
     );
+
+    if (outcome.stockUpdates.length > 0) {
+      await this.posEvents?.publishStockUpdate(
+        auth.tenantId,
+        input.branchId,
+        outcome.stockUpdates,
+      );
+    }
+
+    return outcome.response;
   }
 
   async complete(
@@ -250,11 +268,21 @@ export class PurchaseOrdersService {
     poId: string,
     input: CompletePurchaseOrderInput,
   ): Promise<PurchaseOrderItemResponse> {
-    return this.prisma.withTenantTransaction(
+    const outcome = await this.prisma.withTenantTransaction(
       auth.tenantId,
       (tx) => this.executeCompletionInTx(tx, auth, poId, input),
       { isolationLevel: "RepeatableRead" },
     );
+
+    if (outcome.stockUpdates.length > 0) {
+      await this.posEvents?.publishStockUpdate(
+        auth.tenantId,
+        outcome.response.branchId,
+        outcome.stockUpdates,
+      );
+    }
+
+    return outcome.response;
   }
 
   async cancel(
@@ -298,7 +326,10 @@ export class PurchaseOrdersService {
     auth: AuthenticatedContext,
     poId: string,
     input: CompletePurchaseOrderInput,
-  ): Promise<PurchaseOrderItemResponse> {
+  ): Promise<{
+    response: PurchaseOrderItemResponse;
+    stockUpdates: Array<{ variantId: string; onHand: string; available: string }>;
+  }> {
     const existing = await tx.purchaseOrder.findFirst({
       where: { id: poId },
       select: PO_SELECT,
@@ -352,6 +383,11 @@ export class PurchaseOrdersService {
     const sortedItems = [...existing.items].sort((a, b) =>
       a.variantId.localeCompare(b.variantId),
     );
+    const stockUpdates: Array<{
+      variantId: string;
+      onHand: string;
+      available: string;
+    }> = [];
 
     for (const item of sortedItems) {
       const locked = await lockBranchInventoryRow(
@@ -421,6 +457,12 @@ export class PurchaseOrdersService {
             `Nhập hàng phiếu ${existing.code} (AVCO: ${nextAvgCostStr})`,
         },
       });
+
+      stockUpdates.push({
+        variantId: item.variantId,
+        onHand: qtyAfterStr,
+        available: formatQuantity(qtyAfterMilli - locked.reservedMilli),
+      });
     }
 
     const unpaidMinor = totalMinor - nextPaidMinor;
@@ -441,7 +483,10 @@ export class PurchaseOrdersService {
       select: PO_SELECT,
     });
 
-    return this.serialize(completed);
+    return {
+      response: this.serialize(completed),
+      stockUpdates,
+    };
   }
 
   private serialize(row: PoRow): PurchaseOrderItemResponse {
