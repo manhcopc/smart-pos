@@ -14,6 +14,7 @@ export const GLOBAL_MODELS = new Set<string>([
 export const TENANT_SCOPED_MODELS = new Set<string>([
   "branch",
   "tenantMember",
+  "refreshSession",
   "auditLog",
   "category",
   "product",

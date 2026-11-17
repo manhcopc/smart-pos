@@ -8,7 +8,9 @@ export const envSchema = z.object({
   DATABASE_URL: z
     .string()
     .min(1, "DATABASE_URL is required")
-    .default("postgresql://smartpos:smartpos_dev_password@localhost:5432/smart_pos?schema=public"),
+    .default(
+      "postgresql://smartpos:smartpos_dev_password@localhost:5432/smart_pos?schema=public",
+    ),
   REDIS_URL: z.string().min(1).default("redis://localhost:6379"),
   JWT_ACCESS_SECRET: z
     .string()
@@ -18,7 +20,13 @@ export const envSchema = z.object({
     .string()
     .min(32, "JWT_REFRESH_SECRET must be at least 32 characters")
     .default("dev_only_change_me_refresh_secret_32_chars"),
+  JWT_ACCESS_EXPIRES_IN: z.string().min(1).default("15m"),
+  JWT_REFRESH_EXPIRES_IN: z.string().min(1).default("7d"),
   CORS_ORIGIN: z.string().default("http://localhost:3000"),
+  COOKIE_SECURE: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => v === "true"),
   SWAGGER_ENABLED: z
     .enum(["true", "false"])
     .optional()

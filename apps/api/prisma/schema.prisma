@@ -37,6 +37,10 @@ enum AuditAction {
   SHIFT_DIFF
   REFUND
   CASH_DRAWER_OPEN
+  BRANCH_CREATED
+  BRANCH_UPDATED
+  MEMBER_CREATED
+  MEMBER_UPDATED
 }
 
 enum MovementType {
@@ -125,6 +129,7 @@ model Tenant {
   plan                 SubscriptionPlan     @relation(fields: [planId], references: [id], onDelete: Restrict)
   branches             Branch[]
   members              TenantMember[]
+  refreshSessions      RefreshSession[]
   auditLogs            AuditLog[]
   categories           Category[]
   products             Product[]
@@ -161,7 +166,8 @@ model User {
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
-  memberships TenantMember[]
+  memberships     TenantMember[]
+  refreshSessions RefreshSession[]
 
   @@map("users")
 }
@@ -213,6 +219,7 @@ model TenantMember {
 
   tenant                Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   user                  User              @relation(fields: [userId], references: [id], onDelete: Restrict)
+  refreshSessions       RefreshSession[]
   auditLogs             AuditLog[]
   inventoryLedgers      InventoryLedger[]
   createdPurchaseOrders PurchaseOrder[]   @relation("PurchaseOrderCreator")
@@ -687,4 +694,31 @@ model DailyBranchSummary {
   @@unique([tenantId, branchId, summaryDate])
   @@index([tenantId, summaryDate])
   @@map("daily_branch_summaries")
+}
+
+// =============================================================================
+// 7. AUTHENTICATION REFRESH SESSIONS (Tenant-scoped + RLS protected)
+// =============================================================================
+
+model RefreshSession {
+  id         String    @id @default(uuid()) @db.Uuid
+  tenantId   String    @map("tenant_id") @db.Uuid
+  memberId   String    @map("member_id") @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  familyId   String    @map("family_id") @db.Uuid
+  tokenHash  String    @unique @map("token_hash") @db.Text
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz
+  ipAddress  String?   @map("ip_address") @db.Text
+  userAgent  String?   @map("user_agent") @db.Text
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  tenant Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  member TenantMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  user   User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, familyId])
+  @@index([tenantId, memberId])
+  @@map("refresh_sessions")
 }
