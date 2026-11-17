@@ -9,6 +9,8 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://smartpos:smartpos_dev_password@localhost:5432/smart_pos?schema=public
 
     steps:
       - name: Checkout repository
@@ -27,8 +29,6 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Validate Prisma schema
-        env:
-          DATABASE_URL: postgresql://smartpos:smartpos_dev_password@localhost:5432/smart_pos?schema=public
         run: pnpm --filter @smart-pos/api exec prisma validate
 
       - name: Build all packages

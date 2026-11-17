@@ -8,6 +8,7 @@
     "dev": "nest start --watch",
     "start": "node dist/main",
     "lint": "eslint src",
+    "pretypecheck": "prisma generate",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "prisma:generate": "prisma generate",
