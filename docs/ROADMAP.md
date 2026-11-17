@@ -11,10 +11,10 @@ Lộ trình chia theo từng giai đoạn tăng trưởng thực tế, bám sát
 - [x] Thiết lập `PrismaModule` hỗ trợ Multi-tenant scoping + migration khởi tạo + PostgreSQL RLS helper.
 
 ## Phase 1: SaaS Onboarding, Chi nhánh & RBAC (Tuần 2)
-- [ ] API & UI Đăng ký Shop (`POST /auth/register-tenant`): tạo Tenant, Branch mặc định, Owner account trong 1 transaction.
-- [ ] Đăng nhập Chủ shop/Quản lý (Email + Password) và Đăng nhập nhanh Thu ngân (`tenantSlug` + Mã NV + PIN).
-- [ ] Quản lý Chi nhánh (`branches`) và Nhân viên (`tenant_members` + RBAC Guards).
-- [ ] Điều hướng tự động theo vai trò: Thu ngân -> `/pos`, Quản lý/Chủ shop -> `/dashboard`.
+- [x] API & UI Đăng ký Shop (`POST /auth/register-tenant`): tạo Tenant, Branch mặc định, Owner account trong 1 transaction.
+- [x] Đăng nhập Chủ shop/Quản lý (Email + Password) và Đăng nhập nhanh Thu ngân (`tenantSlug` + Mã NV + PIN).
+- [x] Quản lý Chi nhánh (`branches`) và Nhân viên (`tenant_members` + RBAC Guards).
+- [x] Điều hướng tự động theo vai trò: Thu ngân -> `/pos`, Quản lý/Chủ shop -> `/dashboard`.
 
 ## Phase 2: Hàng hóa & Kho Thời gian thực (Tuần 3–4)
 - [ ] CRUD Nhóm hàng, Sản phẩm, Biến thể (SKU, Barcode, Giá vốn/Giá bán, Ngưỡng tồn tối thiểu).

@@ -1,9 +1,10 @@
+"use client";
+
+import { PERMISSIONS } from "@smart-pos/shared";
 import {
-  BoxesIcon,
-  ClipboardListIcon,
-  LayoutDashboardIcon,
-  ReceiptIcon,
+  Building2Icon,
   ScanBarcodeIcon,
+  ShieldCheckIcon,
   UsersIcon,
 } from "lucide-react";
 import Link from "next/link";
@@ -13,101 +14,147 @@ import {
   Card,
   CardContent,
   CardDescription,
+  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
-
-const NAV_ITEMS = [
-  { label: "Tổng quan", icon: LayoutDashboardIcon },
-  { label: "Hàng hóa & Mã vạch", icon: BoxesIcon },
-  { label: "Nhập kho & Kiểm kho", icon: ClipboardListIcon },
-  { label: "Hóa đơn & Trả hàng", icon: ReceiptIcon },
-  { label: "Nhân viên & Phân quyền", icon: UsersIcon },
-] as const;
-
-const SUMMARY_CARDS = [
-  {
-    title: "Doanh thu thuần hôm nay",
-    value: "0 ₫",
-    hint: "Tổng hợp từ daily_branch_summaries",
-  },
-  {
-    title: "Lợi nhuận gộp ước tính",
-    value: "0 ₫",
-    hint: "Tính theo giá vốn bình quân gia quyền (AVCO)",
-  },
-  {
-    title: "Cảnh báo dưới tồn tối thiểu",
-    value: "0 SKU",
-    hint: "on_hand <= min_stock_alert",
-  },
-] as const;
+import { useMe } from "@/hooks/use-auth";
+import { BUSINESS_TYPE_LABELS, ROLE_LABELS } from "@/lib/labels";
 
 export default function DashboardPage() {
+  const { data: profile } = useMe();
+  if (!profile) {
+    return null;
+  }
+
+  const permissions = new Set(profile.member.permissions);
+  const businessLabel =
+    BUSINESS_TYPE_LABELS[
+      profile.tenant.businessType as keyof typeof BUSINESS_TYPE_LABELS
+    ] ?? profile.tenant.businessType;
+
   return (
-    <div className="grid min-h-screen md:grid-cols-[240px_1fr]">
-      <aside className="flex flex-col gap-4 border-r bg-muted/30 p-4">
-        <div className="flex items-center justify-between">
-          <Link href="/" className="text-sm font-semibold">
-            Smart-POS Admin
-          </Link>
-          <Badge variant="secondary">Phase 0</Badge>
+    <div className="flex flex-col gap-6">
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-xl font-semibold">Tổng quan cửa hàng</h1>
+          <p className="text-sm text-muted-foreground">
+            {profile.tenant.name} · Ngành hàng: {businessLabel}
+          </p>
         </div>
-        <Separator />
-        <nav className="flex flex-col gap-1">
-          {NAV_ITEMS.map((item) => {
-            const Icon = item.icon;
-            return (
-              <Button
-                key={item.label}
-                variant="ghost"
-                className="justify-start"
-                type="button"
+        <div className="flex items-center gap-2">
+          <Badge variant="outline">
+            {profile.branches.length} chi nhánh khả dụng
+          </Badge>
+          <Badge>{ROLE_LABELS[profile.member.role]}</Badge>
+        </div>
+      </header>
+
+      <section className="grid gap-4 md:grid-cols-3">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Building2Icon className="size-4 text-primary" />
+              Chi nhánh vận hành
+            </CardTitle>
+            <CardDescription>
+              Quản lý địa điểm bán hàng, chi nhánh mặc định và hạn mức gói.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2 text-sm">
+            {profile.branches.map((branch) => (
+              <div
+                key={branch.id}
+                className="flex items-center justify-between gap-2"
               >
-                <Icon data-icon="inline-start" />
-                {item.label}
+                <span className="truncate font-medium">
+                  {branch.code} · {branch.name}
+                </span>
+                {branch.isDefault ? (
+                  <Badge variant="secondary">Mặc định</Badge>
+                ) : null}
+              </div>
+            ))}
+          </CardContent>
+          <CardFooter>
+            {permissions.has(PERMISSIONS.BRANCH_MANAGE) ? (
+              <Button
+                variant="outline"
+                className="w-full"
+                render={<Link href="/dashboard/branches" />}
+                nativeButton={false}
+              >
+                Quản lý chi nhánh
               </Button>
-            );
-          })}
-        </nav>
-        <div className="mt-auto">
-          <Button
-            className="w-full"
-            render={<Link href="/pos" />}
-            nativeButton={false}
-          >
-            <ScanBarcodeIcon data-icon="inline-start" />
-            Mở quầy POS
-          </Button>
-        </div>
-      </aside>
+            ) : (
+              <Badge variant="secondary">Chỉ xem</Badge>
+            )}
+          </CardFooter>
+        </Card>
 
-      <main className="flex flex-col gap-6 p-6">
-        <header className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-col gap-1">
-            <h1 className="text-xl font-semibold">Khu Quản trị Cửa hàng</h1>
-            <p className="text-sm text-muted-foreground">
-              Khung Management Area sẵn sàng kết nối API Phase 1–2.
-            </p>
-          </div>
-          <Badge variant="outline">Chi nhánh mặc định</Badge>
-        </header>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <UsersIcon className="size-4 text-primary" />
+              Nhân viên &amp; RBAC
+            </CardTitle>
+            <CardDescription>
+              Cấp mã PIN thu ngân, phân quyền vai trò và giới hạn chi nhánh làm
+              việc.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            Bạn đang đăng nhập với mã nhân viên{" "}
+            <span className="font-mono font-medium text-foreground">
+              {profile.member.employeeCode}
+            </span>{" "}
+            ({profile.member.permissions.length} quyền hiệu lực).
+          </CardContent>
+          <CardFooter>
+            {permissions.has(PERMISSIONS.STAFF_MANAGE) ? (
+              <Button
+                variant="outline"
+                className="w-full"
+                render={<Link href="/dashboard/staff" />}
+                nativeButton={false}
+              >
+                Quản lý nhân viên
+              </Button>
+            ) : (
+              <Badge variant="secondary">Không có quyền STAFF_MANAGE</Badge>
+            )}
+          </CardFooter>
+        </Card>
 
-        <section className="grid gap-4 md:grid-cols-3">
-          {SUMMARY_CARDS.map((card) => (
-            <Card key={card.title}>
-              <CardHeader>
-                <CardDescription>{card.title}</CardDescription>
-                <CardTitle className="font-mono text-2xl">{card.value}</CardTitle>
-              </CardHeader>
-              <CardContent className="text-xs text-muted-foreground">
-                {card.hint}
-              </CardContent>
-            </Card>
-          ))}
-        </section>
-      </main>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ShieldCheckIcon className="size-4 text-primary" />
+              Bán hàng tại quầy (POS)
+            </CardTitle>
+            <CardDescription>
+              Chuyển nhanh sang màn hình bán hàng hoặc đổi ca cho thu ngân bằng
+              PIN.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            Mã cửa hàng dùng cho đăng nhập nhanh:{" "}
+            <span className="font-mono font-medium text-foreground">
+              {profile.tenant.slug}
+            </span>
+          </CardContent>
+          <CardFooter>
+            <Button
+              className="w-full"
+              render={<Link href="/pos" />}
+              nativeButton={false}
+            >
+              <ScanBarcodeIcon data-icon="inline-start" />
+              Mở màn hình POS
+            </Button>
+          </CardFooter>
+        </Card>
+      </section>
     </div>
   );
 }

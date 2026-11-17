@@ -1,10 +1,16 @@
+"use client";
+
 import {
   CreditCardIcon,
   LayoutDashboardIcon,
+  LogOutIcon,
   PrinterIcon,
   SearchIcon,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,17 +22,122 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useLogout, useMe } from "@/hooks/use-auth";
+import { ROLE_LABELS } from "@/lib/labels";
 
 export default function PosTerminalPage() {
+  const router = useRouter();
+  const meQuery = useMe();
+  const logoutMutation = useLogout();
+  const [selectedBranchId, setSelectedBranchId] = useState<string>("");
+
+  useEffect(() => {
+    if (meQuery.isError) {
+      router.replace("/login");
+    }
+  }, [meQuery.isError, router]);
+
+  useEffect(() => {
+    const branches = meQuery.data?.branches;
+    if (branches && branches.length > 0 && !selectedBranchId) {
+      const def = branches.find((b) => b.isDefault) ?? branches[0];
+      if (def) setSelectedBranchId(def.id);
+    }
+  }, [meQuery.data?.branches, selectedBranchId]);
+
+  async function handleLogout() {
+    await logoutMutation.mutateAsync();
+    toast.success("Đã kết thúc phiên làm việc");
+    router.replace("/login");
+  }
+
+  if (meQuery.isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center p-6">
+        <p className="text-sm text-muted-foreground">
+          Đang tải quầy thu ngân...
+        </p>
+      </div>
+    );
+  }
+
+  if (meQuery.isError || !meQuery.data) {
+    return (
+      <div className="flex min-h-screen items-center justify-center p-6">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle>Yêu cầu đăng nhập POS</CardTitle>
+            <CardDescription>
+              Vui lòng đăng nhập bằng Email hoặc mã nhân viên + PIN để mở quầy.
+            </CardDescription>
+          </CardHeader>
+          <CardFooter>
+            <Button
+              className="w-full"
+              render={<Link href="/login" />}
+              nativeButton={false}
+            >
+              Đến cổng đăng nhập
+            </Button>
+          </CardFooter>
+        </Card>
+      </div>
+    );
+  }
+
+  const profile = meQuery.data;
+  const activeBranch =
+    profile.branches.find((b) => b.id === selectedBranchId) ??
+    profile.branches[0];
+  const canOpenDashboard = profile.member.role !== "CASHIER";
+
   return (
     <div className="flex min-h-screen flex-col">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b bg-card px-4 py-3">
-        <div className="flex items-center gap-3">
-          <span className="text-sm font-semibold">Smart-POS Terminal</span>
-          <Badge variant="secondary">Ca chưa mở (Phase 3)</Badge>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <span className="text-sm font-semibold">{profile.tenant.name}</span>
+          <Badge variant="secondary">
+            {profile.user.fullName} ({profile.member.employeeCode}) ·{" "}
+            {ROLE_LABELS[profile.member.role]}
+          </Badge>
+
+          {profile.branches.length > 0 ? (
+            <Select
+              value={activeBranch?.id ?? ""}
+              onValueChange={(value) => {
+                if (value) setSelectedBranchId(value);
+              }}
+            >
+              <SelectTrigger size="sm" className="w-48">
+                <SelectValue>
+                  {activeBranch
+                    ? `${activeBranch.code} · ${activeBranch.name}`
+                    : "Chọn chi nhánh"}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {profile.branches.map((branch) => (
+                    <SelectItem key={branch.id} value={branch.id}>
+                      {branch.code} · {branch.name}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          ) : null}
         </div>
+
         <div className="flex flex-1 items-center gap-2 md:max-w-md">
           <SearchIcon className="size-4 text-muted-foreground" />
           <Input
@@ -34,15 +145,29 @@ export default function PosTerminalPage() {
             placeholder="Tìm tên hàng, SKU hoặc quét mã vạch (F2)..."
           />
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          render={<Link href="/dashboard" />}
-          nativeButton={false}
-        >
-          <LayoutDashboardIcon data-icon="inline-start" />
-          Quản trị
-        </Button>
+
+        <div className="flex items-center gap-2">
+          {canOpenDashboard ? (
+            <Button
+              variant="outline"
+              size="sm"
+              render={<Link href="/dashboard" />}
+              nativeButton={false}
+            >
+              <LayoutDashboardIcon data-icon="inline-start" />
+              Quản trị
+            </Button>
+          ) : null}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleLogout}
+            disabled={logoutMutation.isPending}
+          >
+            <LogOutIcon data-icon="inline-start" />
+            Đổi ca
+          </Button>
+        </div>
       </header>
 
       <div className="grid flex-1 gap-4 p-4 lg:grid-cols-[1fr_380px]">
@@ -57,8 +182,11 @@ export default function PosTerminalPage() {
                 <CardHeader>
                   <CardTitle>Giỏ hàng hiện tại</CardTitle>
                   <CardDescription>
-                    Danh mục đồng bộ IndexedDB sẽ hiển thị tại đây để tìm kiếm
-                    &lt; 50ms ở Phase 3.
+                    Chi nhánh:{" "}
+                    {activeBranch
+                      ? `${activeBranch.code} · ${activeBranch.name}`
+                      : "Chưa gán chi nhánh"}
+                    . Danh mục đồng bộ IndexedDB sẽ hiển thị tại đây ở Phase 3.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="text-sm text-muted-foreground">
@@ -98,12 +226,12 @@ export default function PosTerminalPage() {
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Giảm giá</span>
-                <span className="font-mono">0.00 ₫</span>
+                <span className="font-mono font-medium">0.00 ₫</span>
               </div>
               <Separator />
-              <div className="flex items-center justify-between">
-                <span className="font-medium">Khách cần trả</span>
-                <span className="font-mono text-lg font-semibold">0.00 ₫</span>
+              <div className="flex items-center justify-between text-base font-semibold">
+                <span>Khách cần trả</span>
+                <span className="font-mono">0.00 ₫</span>
               </div>
             </CardContent>
             <CardFooter className="flex gap-2">
