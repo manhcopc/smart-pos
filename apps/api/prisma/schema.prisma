@@ -41,6 +41,9 @@ enum AuditAction {
   BRANCH_UPDATED
   MEMBER_CREATED
   MEMBER_UPDATED
+  TRANSFER_DISPATCHED
+  TRANSFER_RECEIVED
+  CUSTOMER_LOYALTY_ADJUST
 }
 
 enum MovementType {
@@ -93,6 +96,25 @@ enum PaymentMethod {
 enum ReturnStatus {
   COMPLETED
   CANCELLED
+}
+
+enum StockTransferStatus {
+  IN_TRANSIT
+  RECEIVED
+  CANCELLED
+}
+
+enum ExportJobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum ReportExportType {
+  SALES_DETAIL
+  INVENTORY_LEDGER
+  DAILY_SUMMARY
 }
 
 model SubscriptionPlan {
@@ -149,6 +171,9 @@ model Tenant {
   salesReturns         SalesReturn[]
   salesReturnItems     SalesReturnItem[]
   dailyBranchSummaries DailyBranchSummary[]
+  stockTransfers       StockTransfer[]
+  stockTransferItems   StockTransferItem[]
+  reportExportJobs     ReportExportJob[]
 
   @@index([planId])
   @@index([status])
@@ -198,6 +223,8 @@ model Branch {
   salesReturns         SalesReturn[]
   auditLogs            AuditLog[]
   dailyBranchSummaries DailyBranchSummary[]
+  outgoingTransfers    StockTransfer[]      @relation("StockTransferFrom")
+  incomingTransfers    StockTransfer[]      @relation("StockTransferTo")
 
   @@unique([tenantId, code])
   @@index([tenantId, isActive])
@@ -227,8 +254,11 @@ model TenantMember {
   balancedStockCounts   StockCount[]      @relation("StockCountBalancer")
   openedShifts          RegisterShift[]   @relation("ShiftOpenedBy")
   closedShifts          RegisterShift[]   @relation("ShiftClosedBy")
-  cashierInvoices       Invoice[]
-  processedReturns      SalesReturn[]
+  cashierInvoices          Invoice[]
+  processedReturns         SalesReturn[]
+  createdStockTransfers    StockTransfer[]   @relation("StockTransferCreator")
+  receivedStockTransfers   StockTransfer[]   @relation("StockTransferReceiver")
+  requestedReportExports   ReportExportJob[] @relation("ReportExportRequester")
 
   @@unique([tenantId, userId])
   @@unique([tenantId, employeeCode])
@@ -326,6 +356,7 @@ model ProductVariant {
   stockCountItems    StockCountItem[]
   invoiceItems       InvoiceItem[]
   salesReturnItems   SalesReturnItem[]
+  stockTransferItems StockTransferItem[]
 
   @@unique([tenantId, sku])
   @@unique([tenantId, barcode])
@@ -721,4 +752,76 @@ model RefreshSession {
   @@index([tenantId, familyId])
   @@index([tenantId, memberId])
   @@map("refresh_sessions")
+}
+
+// =============================================================================
+// 8. INTER-BRANCH TRANSFERS & BACKGROUND EXPORT JOBS (Phase 4)
+// =============================================================================
+
+model StockTransfer {
+  id                String              @id @default(uuid()) @db.Uuid
+  tenantId          String              @map("tenant_id") @db.Uuid
+  fromBranchId      String              @map("from_branch_id") @db.Uuid
+  toBranchId        String              @map("to_branch_id") @db.Uuid
+  code              String              @db.Text
+  status            StockTransferStatus @default(IN_TRANSIT)
+  createdByMemberId String              @map("created_by_member_id") @db.Uuid
+  receivedByMemberId String?            @map("received_by_member_id") @db.Uuid
+  note              String?             @db.Text
+  dispatchedAt      DateTime            @default(now()) @map("dispatched_at") @db.Timestamptz
+  receivedAt        DateTime?           @map("received_at") @db.Timestamptz
+  createdAt         DateTime            @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime            @updatedAt @map("updated_at") @db.Timestamptz
+
+  tenant           Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  fromBranch       Branch              @relation("StockTransferFrom", fields: [fromBranchId], references: [id], onDelete: Restrict)
+  toBranch         Branch              @relation("StockTransferTo", fields: [toBranchId], references: [id], onDelete: Restrict)
+  createdByMember  TenantMember        @relation("StockTransferCreator", fields: [createdByMemberId], references: [id], onDelete: Restrict)
+  receivedByMember TenantMember?       @relation("StockTransferReceiver", fields: [receivedByMemberId], references: [id], onDelete: SetNull)
+  items            StockTransferItem[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, fromBranchId, createdAt(sort: Desc)])
+  @@index([tenantId, toBranchId, status])
+  @@map("stock_transfers")
+}
+
+model StockTransferItem {
+  id         String  @id @default(uuid()) @db.Uuid
+  tenantId   String  @map("tenant_id") @db.Uuid
+  transferId String  @map("transfer_id") @db.Uuid
+  variantId  String  @map("variant_id") @db.Uuid
+  quantity   Decimal @db.Decimal(15, 3)
+  unitCost   Decimal @map("unit_cost") @db.Decimal(15, 2)
+
+  tenant   Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  transfer StockTransfer  @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  variant  ProductVariant @relation(fields: [variantId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, transferId])
+  @@index([tenantId, variantId])
+  @@map("stock_transfer_items")
+}
+
+model ReportExportJob {
+  id                  String           @id @default(uuid()) @db.Uuid
+  tenantId            String           @map("tenant_id") @db.Uuid
+  requestedByMemberId String           @map("requested_by_member_id") @db.Uuid
+  reportType          ReportExportType @map("report_type")
+  status              ExportJobStatus  @default(PENDING)
+  filters             Json             @default("{}") @db.JsonB
+  fileName            String           @map("file_name") @db.Text
+  storageKey          String?          @map("storage_key") @db.Text
+  rowCount            Int              @default(0) @map("row_count")
+  errorMessage        String?          @map("error_message") @db.Text
+  createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  completedAt         DateTime?        @map("completed_at") @db.Timestamptz
+  updatedAt           DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+
+  tenant            Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  requestedByMember TenantMember @relation("ReportExportRequester", fields: [requestedByMemberId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@index([tenantId, status])
+  @@map("report_export_jobs")
 }

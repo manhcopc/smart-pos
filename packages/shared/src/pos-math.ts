@@ -219,3 +219,154 @@ export function calculatePosInvoiceTotals(params: {
     },
   };
 }
+
+/** 1 loyalty point earned per 10,000 VND paid (excluding loyalty point redemption); 1 point = 1,000 VND. */
+export const LOYALTY_EARN_STEP_MINOR = 1_000_000n;
+export const LOYALTY_POINT_VALUE_MINOR = 100_000n;
+
+export function calculateLoyaltyPointsEarned(eligiblePaidMinor: bigint): number {
+  if (eligiblePaidMinor <= 0n) return 0;
+  return Number(eligiblePaidMinor / LOYALTY_EARN_STEP_MINOR);
+}
+
+export function calculateLoyaltyPointsRequired(redeemAmountMinor: bigint): number {
+  if (redeemAmountMinor <= 0n) return 0;
+  if (redeemAmountMinor % LOYALTY_POINT_VALUE_MINOR !== 0n) {
+    throw new PosMathError(
+      "PAYMENT_UNDERPAID",
+      "Số tiền thanh toán bằng điểm thưởng phải là bội số của 1.000 ₫",
+    );
+  }
+  return Number(redeemAmountMinor / LOYALTY_POINT_VALUE_MINOR);
+}
+
+export interface ReturnLineInput {
+  invoiceItemId: string;
+  originalQuantity: string | number;
+  previouslyReturnedQuantity: string | number;
+  returnQuantity: string | number;
+  lineTotal: string | number;
+  lineTaxAmount: string | number;
+  unitCostSnapshot: string | number;
+}
+
+export interface ComputedReturnLine {
+  invoiceItemId: string;
+  returnQtyMilli: bigint;
+  refundAmountMinor: bigint;
+  netRevenueReversalMinor: bigint;
+  cogsReversalMinor: bigint;
+}
+
+export interface ComputedSalesReturnTotals {
+  lines: ComputedReturnLine[];
+  totalRefundMinor: bigint;
+  totalNetRevenueReversalMinor: bigint;
+  totalCogsReversalMinor: bigint;
+}
+
+function roundHalfUpRatio(numerator: bigint, denominator: bigint): bigint {
+  if (denominator <= 0n || numerator <= 0n) return 0n;
+  return (numerator * 2n + denominator) / (2n * denominator);
+}
+
+/**
+ * Compute proportional sales return totals across invoice items using fixed-point integer math.
+ * Caps refunds cleanly against remaining invoice balance when returning remaining units,
+ * accounting for invoice-level discounts proportionally by line total.
+ */
+export function calculateSalesReturnTotals(params: {
+  invoiceSubtotalAfterLineDiscountAndTaxMinor: bigint;
+  invoiceTotalMinor: bigint;
+  priorRefundedTotalMinor: bigint;
+  lines: readonly ReturnLineInput[];
+}): ComputedSalesReturnTotals {
+  if (params.lines.length === 0) {
+    throw new PosMathError("EMPTY_CART", "Phiếu trả hàng phải có ít nhất 1 dòng");
+  }
+
+  const maxRefundableRemaining =
+    params.invoiceTotalMinor > params.priorRefundedTotalMinor
+      ? params.invoiceTotalMinor - params.priorRefundedTotalMinor
+      : 0n;
+
+  const scaleDenom =
+    params.invoiceSubtotalAfterLineDiscountAndTaxMinor > 0n
+      ? params.invoiceSubtotalAfterLineDiscountAndTaxMinor
+      : 1n;
+
+  let totalRefundMinor = 0n;
+  let totalNetRevenueReversalMinor = 0n;
+  let totalCogsReversalMinor = 0n;
+
+  const computed: ComputedReturnLine[] = params.lines.map((line) => {
+    const origQtyMilli = parseQuantity(line.originalQuantity);
+    const prevReturnedMilli = parseQuantity(line.previouslyReturnedQuantity);
+    const returnQtyMilli = parseQuantity(line.returnQuantity);
+    const lineTotalMinor = parseMoney(line.lineTotal);
+    const lineTaxMinor = parseMoney(line.lineTaxAmount);
+    const unitCostMinor = parseMoney(line.unitCostSnapshot);
+
+    if (returnQtyMilli <= 0n || prevReturnedMilli + returnQtyMilli > origQtyMilli) {
+      throw new PosMathError(
+        "INVALID_DISCOUNT",
+        "Số lượng hoàn trả vượt quá số lượng còn lại trên hóa đơn",
+      );
+    }
+
+    // Share of invoice total attributable to this item after any invoice-level discount
+    const allocatedLineTotalMinor = roundHalfUpRatio(
+      lineTotalMinor * params.invoiceTotalMinor,
+      scaleDenom,
+    );
+    const netBeforeTaxAllocatedMinor =
+      allocatedLineTotalMinor > lineTaxMinor
+        ? allocatedLineTotalMinor - roundHalfUpRatio(lineTaxMinor * params.invoiceTotalMinor, scaleDenom)
+        : 0n;
+
+    const prevRefundForLine = roundHalfUpRatio(
+      allocatedLineTotalMinor * prevReturnedMilli,
+      origQtyMilli,
+    );
+    const cumulativeRefundForLine = roundHalfUpRatio(
+      allocatedLineTotalMinor * (prevReturnedMilli + returnQtyMilli),
+      origQtyMilli,
+    );
+    let refundAmountMinor =
+      cumulativeRefundForLine > prevRefundForLine
+        ? cumulativeRefundForLine - prevRefundForLine
+        : 0n;
+
+    if (totalRefundMinor + refundAmountMinor > maxRefundableRemaining) {
+      refundAmountMinor =
+        maxRefundableRemaining > totalRefundMinor
+          ? maxRefundableRemaining - totalRefundMinor
+          : 0n;
+    }
+
+    const netRevenueReversalMinor = roundHalfUpRatio(
+      netBeforeTaxAllocatedMinor * returnQtyMilli,
+      origQtyMilli,
+    );
+    const cogsReversalMinor = calculateLineSubtotal(returnQtyMilli, unitCostMinor);
+
+    totalRefundMinor += refundAmountMinor;
+    totalNetRevenueReversalMinor += netRevenueReversalMinor;
+    totalCogsReversalMinor += cogsReversalMinor;
+
+    return {
+      invoiceItemId: line.invoiceItemId,
+      returnQtyMilli,
+      refundAmountMinor,
+      netRevenueReversalMinor,
+      cogsReversalMinor,
+    };
+  });
+
+  return {
+    lines: computed,
+    totalRefundMinor,
+    totalNetRevenueReversalMinor,
+    totalCogsReversalMinor,
+  };
+}

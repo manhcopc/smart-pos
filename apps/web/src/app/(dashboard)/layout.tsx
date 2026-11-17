@@ -2,6 +2,8 @@
 
 import { PERMISSIONS } from "@smart-pos/shared";
 import {
+  ArrowLeftRightIcon,
+  BarChart3Icon,
   BoxesIcon,
   Building2Icon,
   ClipboardCheckIcon,
@@ -9,7 +11,9 @@ import {
   LogOutIcon,
   PackagePlusIcon,
   ScanBarcodeIcon,
+  ScrollTextIcon,
   StoreIcon,
+  UserCheckIcon,
   UsersIcon,
   WarehouseIcon,
 } from "lucide-react";
@@ -56,6 +60,30 @@ const NAV_ITEMS: readonly NavItem[] = [
     label: "Kiểm kho",
     icon: ClipboardCheckIcon,
     requiredPermission: PERMISSIONS.INVENTORY_COUNT,
+  },
+  {
+    href: "/dashboard/transfers",
+    label: "Điều chuyển kho",
+    icon: ArrowLeftRightIcon,
+    requiredPermission: PERMISSIONS.INVENTORY_TRANSFER,
+  },
+  {
+    href: "/dashboard/customers",
+    label: "Khách hàng & Loyalty",
+    icon: UserCheckIcon,
+    requiredPermission: PERMISSIONS.CUSTOMER_VIEW,
+  },
+  {
+    href: "/dashboard/reports",
+    label: "Báo cáo & Xuất Excel",
+    icon: BarChart3Icon,
+    requiredPermission: PERMISSIONS.REPORT_FINANCIAL,
+  },
+  {
+    href: "/dashboard/audit-logs",
+    label: "Nhật ký kiểm toán",
+    icon: ScrollTextIcon,
+    requiredPermission: PERMISSIONS.AUDIT_VIEW,
   },
   {
     href: "/dashboard/branches",

@@ -5,10 +5,13 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import {
   calculateLineSubtotal,
+  calculateLoyaltyPointsEarned,
+  calculateLoyaltyPointsRequired,
   calculatePosInvoiceTotals,
   type CreateInvoiceInput,
   ERROR_CODES,
@@ -19,6 +22,7 @@ import {
   parseMoney,
   parseQuantity,
   PAYMENT_METHODS,
+  type Permission,
   PERMISSIONS,
   PosMathError,
 } from "@smart-pos/shared";
@@ -27,62 +31,17 @@ import { assertBranchAccessibleInTx } from "../common/tenant/tenant-quota.helper
 import { runWithSerializableRetry } from "../prisma/prisma-retry.helper";
 import { PrismaService } from "../prisma/prisma.service";
 import { PosEventsService } from "./pos-events.service";
-
-const RECEIPT_SELECT = {
-  id: true,
-  code: true,
-  idempotencyKey: true,
-  branchId: true,
-  shiftId: true,
-  cashierMemberId: true,
-  status: true,
-  subtotal: true,
-  discountAmount: true,
-  taxAmount: true,
-  totalAmount: true,
-  paidAmount: true,
-  createdAt: true,
-  branch: { select: { code: true, name: true } },
-  cashierMember: { select: { user: { select: { fullName: true } } } },
-  items: {
-    select: {
-      id: true,
-      variantId: true,
-      productNameSnapshot: true,
-      skuSnapshot: true,
-      quantity: true,
-      unitPrice: true,
-      discountAmount: true,
-      taxAmount: true,
-      lineTotal: true,
-    },
-    orderBy: { id: "asc" },
-  },
-  payments: {
-    select: {
-      id: true,
-      method: true,
-      amount: true,
-      referenceNo: true,
-      paidAt: true,
-    },
-    orderBy: { paidAt: "asc" },
-  },
-} satisfies Prisma.InvoiceSelect;
-
-type ReceiptRow = Prisma.InvoiceGetPayload<{ select: typeof RECEIPT_SELECT }>;
+import {
+  getVietnamBusinessDate,
+  INVOICE_RECEIPT_SELECT,
+  serializeInvoiceReceipt,
+} from "./pos-invoice.helper";
+import { PosSupervisorService } from "./pos-supervisor.service";
 
 interface StockDeltaPublished {
   variantId: string;
   onHand: string;
   available: string;
-}
-
-function getVietnamBusinessDate(): Date {
-  // Store calendar date in Asia/Ho_Chi_Minh (UTC+7) so daily reports align with local shifts.
-  const nowVietnam = new Date(Date.now() + 7 * 60 * 60 * 1000);
-  const yyyyMmDd = nowVietnam.toISOString().slice(0, 10);
-  return new Date(`${yyyyMmDd}T00:00:00.000Z`);
 }
 
 function generateInvoiceCode(): string {
@@ -99,6 +58,7 @@ export class PosCheckoutService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly posEvents: PosEventsService,
+    @Optional() private readonly posSupervisor?: PosSupervisorService,
   ) {}
 
   async listInvoices(
@@ -133,7 +93,7 @@ export class PosCheckoutService {
         tx.invoice.count({ where }),
         tx.invoice.findMany({
           where,
-          select: RECEIPT_SELECT,
+          select: INVOICE_RECEIPT_SELECT,
           orderBy: { createdAt: "desc" },
           skip,
           take: query.limit,
@@ -141,7 +101,7 @@ export class PosCheckoutService {
       ]);
 
       return {
-        items: rows.map((row) => this.serializeReceipt(row, "0.00")),
+        items: rows.map((row) => serializeInvoiceReceipt(row, "0.00")),
         pagination: {
           page: query.page,
           limit: query.limit,
@@ -171,12 +131,12 @@ export class PosCheckoutService {
           async (tx) => {
           const existing = await tx.invoice.findFirst({
             where: { idempotencyKey: input.idempotencyKey },
-            select: RECEIPT_SELECT,
+            select: INVOICE_RECEIPT_SELECT,
           });
 
           if (existing) {
             return {
-              receipt: this.serializeReceipt(existing, "0.00"),
+              receipt: serializeInvoiceReceipt(existing, "0.00"),
               publishedStock: [],
               isIdempotentReplay: true,
             };
@@ -272,27 +232,31 @@ export class PosCheckoutService {
             };
           });
 
-          if (
-            usedPriceOverride &&
-            !auth.effectivePermissions.has(PERMISSIONS.POS_PRICE_OVERRIDE)
-          ) {
-            throw new ForbiddenException({
-              code: ERROR_CODES.AUTH_FORBIDDEN,
-              message: "Bạn không có quyền sửa giá bán tại quầy",
-            });
+          let priceOverrideApproverId: string | null = null;
+          if (usedPriceOverride) {
+            priceOverrideApproverId = this.checkPermissionOrApproval(
+              auth,
+              PERMISSIONS.POS_PRICE_OVERRIDE,
+              input.branchId,
+              input.supervisorApprovalToken,
+              "Bạn không có quyền sửa giá bán tại quầy",
+            );
           }
 
-          if (
-            usedDiscountOverride &&
-            !auth.effectivePermissions.has(PERMISSIONS.POS_DISCOUNT_OVERRIDE)
-          ) {
-            throw new ForbiddenException({
-              code: ERROR_CODES.AUTH_FORBIDDEN,
-              message: "Bạn không có quyền áp dụng chiết khấu tại quầy",
-            });
+          let discountOverrideApproverId: string | null = null;
+          if (usedDiscountOverride) {
+            discountOverrideApproverId = this.checkPermissionOrApproval(
+              auth,
+              PERMISSIONS.POS_DISCOUNT_OVERRIDE,
+              input.branchId,
+              input.supervisorApprovalToken,
+              "Bạn không có quyền áp dụng chiết khấu tại quầy",
+            );
           }
 
           let totals;
+          let redeemedPoints = 0;
+          let earnedPoints = 0;
           try {
             totals = calculatePosInvoiceTotals({
               lines: resolvedLineInputs.map((entry) => ({
@@ -307,6 +271,18 @@ export class PosCheckoutService {
                 amount: p.amount,
               })),
             });
+
+            const loyaltyPaidMinor = totals.settledByMethodMinor.LOYALTY_POINTS;
+            if (loyaltyPaidMinor > 0n) {
+              if (!input.customerId) {
+                throw new BadRequestException({
+                  code: ERROR_CODES.VALIDATION_ERROR,
+                  message:
+                    "Vui lòng chọn hồ sơ khách hàng khi thanh toán bằng điểm thưởng",
+                });
+              }
+              redeemedPoints = calculateLoyaltyPointsRequired(loyaltyPaidMinor);
+            }
           } catch (err) {
             if (err instanceof PosMathError) {
               const code =
@@ -317,6 +293,34 @@ export class PosCheckoutService {
               throw new BadRequestException({ code, message: err.message });
             }
             throw err;
+          }
+
+          if (input.customerId && redeemedPoints > 0) {
+            const deductedCustomer = await tx.$queryRaw<
+              Array<{ loyalty_points: number }>
+            >`
+              UPDATE customers
+              SET
+                loyalty_points = loyalty_points - ${redeemedPoints}::int,
+                updated_at = now()
+              WHERE tenant_id = ${auth.tenantId}::uuid
+                AND id = ${input.customerId}::uuid
+                AND loyalty_points >= ${redeemedPoints}::int
+              RETURNING loyalty_points
+            `;
+            if (deductedCustomer.length === 0) {
+              throw new ConflictException({
+                code: ERROR_CODES.INSUFFICIENT_LOYALTY_POINTS,
+                message: "Điểm thưởng của khách hàng không đủ để thanh toán",
+              });
+            }
+          }
+
+          if (input.customerId) {
+            const eligiblePaidMinor =
+              totals.totalAmountMinor -
+              totals.settledByMethodMinor.LOYALTY_POINTS;
+            earnedPoints = calculateLoyaltyPointsEarned(eligiblePaidMinor);
           }
 
           // Aggregate stock quantities per SKU and lock/deduct in ascending variantId order.
@@ -479,7 +483,7 @@ export class PosCheckoutService {
               items: { create: invoiceItemsData },
               payments: { create: paymentLegsData },
             },
-            select: RECEIPT_SELECT,
+            select: INVOICE_RECEIPT_SELECT,
           });
 
           const publishedStock: StockDeltaPublished[] = [];
@@ -564,6 +568,18 @@ export class PosCheckoutService {
               updated_at = now()
           `;
 
+          if (input.customerId) {
+            await tx.$executeRaw`
+              UPDATE customers
+              SET
+                loyalty_points = loyalty_points + ${earnedPoints}::int,
+                total_spent = total_spent + ${totals.formatted.totalAmount}::decimal(15, 2),
+                updated_at = now()
+              WHERE tenant_id = ${auth.tenantId}::uuid
+                AND id = ${input.customerId}::uuid
+            `;
+          }
+
           if (usedPriceOverride) {
             await tx.auditLog.create({
               data: {
@@ -574,7 +590,13 @@ export class PosCheckoutService {
                 entityType: "invoice",
                 entityId: createdInvoice.id,
                 ipAddress: meta.ipAddress ?? null,
-                metadata: { invoiceCode, totalAmount: totals.formatted.totalAmount },
+                metadata: {
+                  invoiceCode,
+                  totalAmount: totals.formatted.totalAmount,
+                  ...(priceOverrideApproverId
+                    ? { approvedByMemberId: priceOverrideApproverId }
+                    : {}),
+                },
               },
             });
           }
@@ -592,15 +614,19 @@ export class PosCheckoutService {
                 metadata: {
                   invoiceCode,
                   discountAmount: totals.formatted.discountAmount,
+                  ...(discountOverrideApproverId
+                    ? { approvedByMemberId: discountOverrideApproverId }
+                    : {}),
                 },
               },
             });
           }
 
           return {
-            receipt: this.serializeReceipt(
+            receipt: serializeInvoiceReceipt(
               createdInvoice,
               totals.formatted.changeDue,
+              earnedPoints,
             ),
             publishedStock,
             isIdempotentReplay: false,
@@ -616,11 +642,11 @@ export class PosCheckoutService {
           (tx) =>
             tx.invoice.findFirst({
               where: { idempotencyKey: input.idempotencyKey },
-              select: RECEIPT_SELECT,
+              select: INVOICE_RECEIPT_SELECT,
             }),
         );
         if (replay) {
-          return this.serializeReceipt(replay, "0.00");
+          return serializeInvoiceReceipt(replay, "0.00");
         }
       }
       throw error;
@@ -638,47 +664,30 @@ export class PosCheckoutService {
     return outcome.receipt;
   }
 
-  private serializeReceipt(
-    row: ReceiptRow,
-    changeGiven: string,
-  ): InvoiceReceiptResponse {
-    return {
-      id: row.id,
-      code: row.code,
-      idempotencyKey: row.idempotencyKey,
-      branchId: row.branchId,
-      branchCode: row.branch.code,
-      branchName: row.branch.name,
-      shiftId: row.shiftId,
-      cashierMemberId: row.cashierMemberId,
-      cashierName: row.cashierMember.user.fullName,
-      status: row.status,
-      subtotal: row.subtotal.toFixed(2),
-      discountAmount: row.discountAmount.toFixed(2),
-      taxAmount: row.taxAmount.toFixed(2),
-      totalAmount: row.totalAmount.toFixed(2),
-      paidAmount: row.paidAmount.toFixed(2),
-      changeGiven,
-      createdAt: row.createdAt.toISOString(),
-      items: row.items.map((item) => ({
-        id: item.id,
-        variantId: item.variantId,
-        productName: item.productNameSnapshot,
-        sku: item.skuSnapshot,
-        quantity: item.quantity.toFixed(3),
-        unitPrice: item.unitPrice.toFixed(2),
-        discountAmount: item.discountAmount.toFixed(2),
-        taxAmount: item.taxAmount.toFixed(2),
-        lineTotal: item.lineTotal.toFixed(2),
-      })),
-      payments: row.payments.map((payment) => ({
-        id: payment.id,
-        method: payment.method,
-        amount: payment.amount.toFixed(2),
-        referenceNo: payment.referenceNo,
-        paidAt: payment.paidAt.toISOString(),
-      })),
-    };
+  private checkPermissionOrApproval(
+    auth: AuthenticatedContext,
+    permission: Permission,
+    branchId: string,
+    supervisorApprovalToken: string | undefined,
+    forbiddenMessage: string,
+  ): string | null {
+    if (this.posSupervisor) {
+      return this.posSupervisor.resolvePermissionOrApproval(
+        auth,
+        permission,
+        branchId,
+        supervisorApprovalToken,
+        forbiddenMessage,
+      ).approvedByMemberId;
+    }
+
+    if (!auth.effectivePermissions.has(permission)) {
+      throw new ForbiddenException({
+        code: ERROR_CODES.AUTH_FORBIDDEN,
+        message: forbiddenMessage,
+      });
+    }
+    return null;
   }
 
   private isIdempotencyKeyConflict(error: unknown): boolean {

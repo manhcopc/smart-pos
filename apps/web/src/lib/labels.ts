@@ -1,12 +1,59 @@
 import type {
+  AuditActionType,
   BusinessType,
+  ExportJobStatus,
   InventoryMovementType,
   PaymentMethod,
   Permission,
   PurchaseOrderStatus,
+  ReportExportType,
   Role,
   StockCountStatus,
+  StockTransferStatus,
 } from "@smart-pos/shared";
+
+export const INVOICE_STATUS_LABELS: Record<string, string> = {
+  COMPLETED: "Hoàn thành",
+  VOIDED: "Đã hủy",
+  PARTIAL_RETURNED: "Trả một phần",
+  RETURNED: "Đã trả hết",
+};
+
+export const STOCK_TRANSFER_STATUS_LABELS: Record<StockTransferStatus, string> = {
+  IN_TRANSIT: "Đang vận chuyển",
+  RECEIVED: "Đã nhận kho",
+  CANCELLED: "Đã hủy",
+};
+
+export const EXPORT_JOB_STATUS_LABELS: Record<ExportJobStatus, string> = {
+  PENDING: "Đang chờ",
+  PROCESSING: "Đang xử lý",
+  COMPLETED: "Hoàn tất",
+  FAILED: "Thất bại",
+};
+
+export const REPORT_EXPORT_TYPE_LABELS: Record<ReportExportType, string> = {
+  SALES_DETAIL: "Chi tiết hóa đơn bán hàng",
+  INVENTORY_LEDGER: "Thẻ kho chi tiết",
+  DAILY_SUMMARY: "Tổng hợp doanh thu theo ngày",
+};
+
+export const AUDIT_ACTION_LABELS: Record<AuditActionType, string> = {
+  INVOICE_VOID: "Hủy hóa đơn",
+  PRICE_OVERRIDE: "Sửa giá bán tại quầy",
+  DISCOUNT_OVERRIDE: "Chiết khấu tại quầy",
+  STOCK_ADJUST: "Điều chỉnh kiểm kho",
+  SHIFT_DIFF: "Lệch tiền chốt ca",
+  REFUND: "Hoàn trả hàng / tiền",
+  CASH_DRAWER_OPEN: "Mở két tiền thủ công",
+  BRANCH_CREATED: "Tạo chi nhánh",
+  BRANCH_UPDATED: "Cập nhật chi nhánh",
+  MEMBER_CREATED: "Thêm nhân viên",
+  MEMBER_UPDATED: "Cập nhật nhân viên",
+  TRANSFER_DISPATCHED: "Xuất chuyển kho",
+  TRANSFER_RECEIVED: "Nhận chuyển kho",
+  CUSTOMER_LOYALTY_ADJUST: "Điều chỉnh điểm Loyalty",
+};
 
 export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   CASH: "Tiền mặt",
@@ -73,6 +120,8 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "inventory:count": "Kiểm kho & Cân bằng tồn",
   "inventory:transfer": "Điều chuyển kho nội bộ",
   "catalog:manage": "Quản lý danh mục & sản phẩm",
+  "customer:view": "Xem & chọn khách hàng tại POS",
+  "customer:manage": "Quản lý CRM & điểm Loyalty",
   "report:financial": "Xem báo cáo doanh thu & lãi gộp",
   "staff:manage": "Quản lý nhân viên & phân quyền",
   "branch:manage": "Quản lý chi nhánh",

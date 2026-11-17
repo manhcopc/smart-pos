@@ -32,11 +32,11 @@ Lộ trình chia theo từng giai đoạn tăng trưởng thực tế, bám sát
 - [x] Viết bộ test `Vitest` cho toàn bộ phép tính tiền, chiết khấu, VAT, trừ kho đồng thời.
 
 ## Phase 4: Báo cáo, Hoàn trả, CRM & Queue nền (Tuần 7–8)
-- [ ] Luồng Trả hàng / Hoàn tiền (`sales_returns`) kiểm soát trả lũy kế + hoàn kho nguyên tử.
-- [ ] PIN Quản lý duyệt thao tác nhạy cảm (sửa giá, hủy hóa đơn) + trang xem `Audit Logs`.
-- [ ] Quản lý Khách hàng (CRM) & Tích điểm Loyalty.
-- [ ] Dashboard tổng hợp từ `daily_branch_summaries` (Doanh thu, Lợi nhuận gộp, Hàng bán chạy, Cảnh báo tồn).
-- [ ] **BullMQ Worker (Redis):** Xuất báo cáo Excel dung lượng lớn chạy nền, Chuyển kho liên chi nhánh.
+- [x] Luồng Trả hàng / Hoàn tiền (`sales_returns`) kiểm soát trả lũy kế + hoàn kho nguyên tử.
+- [x] PIN Quản lý duyệt thao tác nhạy cảm (sửa giá, hủy hóa đơn) + trang xem `Audit Logs`.
+- [x] Quản lý Khách hàng (CRM) & Tích điểm Loyalty.
+- [x] Dashboard tổng hợp từ `daily_branch_summaries` (Doanh thu, Lợi nhuận gộp, Hàng bán chạy, Cảnh báo tồn).
+- [x] **BullMQ Worker (Redis):** Xuất báo cáo Excel dung lượng lớn chạy nền, Chuyển kho liên chi nhánh.
 
 ## Phase 5: Offline-First nâng cao, Gói SaaS & Tích hợp (Mở rộng)
 - [ ] Hàng đợi đơn hàng Offline trên `IndexedDB` khi rớt mạng hoàn toàn + tự động đồng bộ & giải quyết xung đột khi online.
