@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  Optional,
 } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import {
@@ -19,6 +20,7 @@ import {
 } from "@smart-pos/shared";
 import type { AuthenticatedContext, RequestMeta } from "../auth/auth.types";
 import { assertBranchAccessibleInTx } from "../common/tenant/tenant-quota.helper";
+import { PosEventsService } from "../pos/pos-events.service";
 import { PrismaService } from "../prisma/prisma.service";
 import {
   generateDocumentCode,
@@ -55,7 +57,10 @@ type StockCountRow = Prisma.StockCountGetPayload<{
 
 @Injectable()
 export class StockCountsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly posEvents?: PosEventsService,
+  ) {}
 
   async list(
     auth: AuthenticatedContext,
@@ -110,7 +115,10 @@ export class StockCountsService {
     input: CreateStockCountInput,
     meta: RequestMeta,
   ): Promise<StockCountItemResponse> {
-    return this.prisma.withTenantTransaction(
+    const outcome = await this.prisma.withTenantTransaction<{
+      response: StockCountItemResponse;
+      stockUpdates: Array<{ variantId: string; onHand: string; available: string }>;
+    }>(
       auth.tenantId,
       async (tx) => {
         await assertBranchAccessibleInTx(tx, auth, input.branchId);
@@ -184,10 +192,20 @@ export class StockCountsService {
           return this.executeBalanceInTx(tx, auth, created.id, {}, meta);
         }
 
-        return this.serialize(created);
+        return { response: this.serialize(created), stockUpdates: [] };
       },
       { isolationLevel: "RepeatableRead" },
     );
+
+    if (outcome.stockUpdates.length > 0) {
+      await this.posEvents?.publishStockUpdate(
+        auth.tenantId,
+        input.branchId,
+        outcome.stockUpdates,
+      );
+    }
+
+    return outcome.response;
   }
 
   async balance(
@@ -196,11 +214,21 @@ export class StockCountsService {
     input: BalanceStockCountInput,
     meta: RequestMeta,
   ): Promise<StockCountItemResponse> {
-    return this.prisma.withTenantTransaction(
+    const outcome = await this.prisma.withTenantTransaction(
       auth.tenantId,
       (tx) => this.executeBalanceInTx(tx, auth, stockCountId, input, meta),
       { isolationLevel: "RepeatableRead" },
     );
+
+    if (outcome.stockUpdates.length > 0) {
+      await this.posEvents?.publishStockUpdate(
+        auth.tenantId,
+        outcome.response.branchId,
+        outcome.stockUpdates,
+      );
+    }
+
+    return outcome.response;
   }
 
   async cancel(
@@ -245,7 +273,10 @@ export class StockCountsService {
     stockCountId: string,
     input: BalanceStockCountInput,
     meta: RequestMeta,
-  ): Promise<StockCountItemResponse> {
+  ): Promise<{
+    response: StockCountItemResponse;
+    stockUpdates: Array<{ variantId: string; onHand: string; available: string }>;
+  }> {
     const existing = await tx.stockCount.findFirst({
       where: { id: stockCountId },
       select: STOCK_COUNT_SELECT,
@@ -289,6 +320,11 @@ export class StockCountsService {
       sku: string;
       varianceQty: string;
       reason: string;
+    }> = [];
+    const stockUpdates: Array<{
+      variantId: string;
+      onHand: string;
+      available: string;
     }> = [];
 
     for (const item of sortedItems) {
@@ -373,6 +409,12 @@ export class StockCountsService {
           varianceQty: varianceQtyStr,
           reason: effectiveReason!,
         });
+
+        stockUpdates.push({
+          variantId: item.variantId,
+          onHand: actualQtyStr,
+          available: formatQuantity(actualQtyMilli - locked.reservedMilli),
+        });
       }
     }
 
@@ -400,7 +442,10 @@ export class StockCountsService {
       select: STOCK_COUNT_SELECT,
     });
 
-    return this.serialize(balanced);
+    return {
+      response: this.serialize(balanced),
+      stockUpdates,
+    };
   }
 
   private serialize(row: StockCountRow): StockCountItemResponse {
