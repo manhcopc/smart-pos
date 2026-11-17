@@ -6,6 +6,10 @@ import { ZodType, type ZodTypeDef } from "zod";
 export class ZodValidationPipe<T> implements PipeTransform<unknown, T> {
   constructor(private readonly schema: ZodType<T, ZodTypeDef, unknown>) {}
 
+  getSchema(): ZodType<T, ZodTypeDef, unknown> {
+    return this.schema;
+  }
+
   transform(value: unknown): T {
     const parsed = this.schema.safeParse(value);
     if (!parsed.success) {
