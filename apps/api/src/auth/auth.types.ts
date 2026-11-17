@@ -7,6 +7,20 @@ export const REFRESH_COOKIE_NAME = "smartpos_refresh";
 export const JWT_ISSUER = "smart-pos-api";
 export const JWT_ACCESS_AUDIENCE = "smart-pos-client";
 export const JWT_REFRESH_AUDIENCE = "smart-pos-refresh";
+export const JWT_SUPERVISOR_AUDIENCE = "smart-pos-supervisor";
+
+export interface SupervisorTokenClaims {
+  sub: string;
+  approverMemberId: string;
+  approverName: string;
+  approverEmployeeCode: string;
+  tenantId: string;
+  branchId: string;
+  permission: Permission;
+  jti: string;
+  iat: number;
+  exp: number;
+}
 
 export interface AccessTokenClaims {
   sub: string;

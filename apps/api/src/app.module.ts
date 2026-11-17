@@ -5,11 +5,14 @@ import { BranchesModule } from "./branches/branches.module";
 import { CatalogModule } from "./catalog/catalog.module";
 import { RateLimitModule } from "./common/rate-limit/rate-limit.module";
 import { validateEnv } from "./config/env";
+import { CustomersModule } from "./customers/customers.module";
 import { HealthModule } from "./health/health.module";
 import { InventoryModule } from "./inventory/inventory.module";
+import { JobsModule } from "./jobs/jobs.module";
 import { PosModule } from "./pos/pos.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { RedisModule } from "./redis/redis.module";
+import { ReportsModule } from "./reports/reports.module";
 import { StaffModule } from "./staff/staff.module";
 
 @Module({
@@ -21,6 +24,7 @@ import { StaffModule } from "./staff/staff.module";
     }),
     PrismaModule,
     RedisModule,
+    JobsModule,
     RateLimitModule,
     AuthModule,
     BranchesModule,
@@ -28,6 +32,8 @@ import { StaffModule } from "./staff/staff.module";
     CatalogModule,
     InventoryModule,
     PosModule,
+    CustomersModule,
+    ReportsModule,
     HealthModule,
   ],
 })

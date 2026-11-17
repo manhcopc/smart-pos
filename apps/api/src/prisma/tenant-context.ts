@@ -34,6 +34,9 @@ export const TENANT_SCOPED_MODELS = new Set<string>([
   "salesReturn",
   "salesReturnItem",
   "dailyBranchSummary",
+  "stockTransfer",
+  "stockTransferItem",
+  "reportExportJob",
 ]);
 
 const READ_OPERATIONS = new Set([
