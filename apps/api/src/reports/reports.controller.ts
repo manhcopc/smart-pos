@@ -28,6 +28,7 @@ import { CurrentAuth, RequirePermissions } from "../auth/auth.decorators";
 import type { AuthenticatedContext } from "../auth/auth.types";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 import { PermissionsGuard } from "../auth/guards/permissions.guard";
+import { sendXlsxResponse } from "../common/http/xlsx-response.helper";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { ReportExportsService } from "./report-exports.service";
 import { ReportsService } from "./reports.service";
@@ -88,13 +89,6 @@ export class ReportsController {
       auth,
       exportJobId,
     );
-    const safeName = fileName.replace(/[^A-Za-z0-9._-]/g, "_");
-    res.setHeader(
-      "Content-Type",
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    );
-    res.setHeader("Content-Disposition", `attachment; filename="${safeName}"`);
-    res.setHeader("Content-Length", String(buffer.length));
-    res.send(buffer);
+    sendXlsxResponse(res, fileName, buffer);
   }
 }

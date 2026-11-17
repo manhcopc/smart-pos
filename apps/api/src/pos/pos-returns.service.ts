@@ -615,7 +615,7 @@ export class PosReturnsService {
             Array<{
               id: string;
               branch_id: string;
-              shift_id: string;
+              shift_id: string | null;
               customer_id: string | null;
               code: string;
               status: string;
@@ -785,7 +785,7 @@ export class PosReturnsService {
             if (p.method === "LOYALTY_POINTS") loyaltyPaidMinor += amtMinor;
           }
 
-          if (cashPaidMinor > 0n) {
+          if (cashPaidMinor > 0n && inv.shift_id) {
             const lockedShifts = await tx.$queryRaw<
               Array<{ id: string; status: string }>
             >`

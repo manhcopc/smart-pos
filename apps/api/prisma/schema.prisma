@@ -44,6 +44,12 @@ enum AuditAction {
   TRANSFER_DISPATCHED
   TRANSFER_RECEIVED
   CUSTOMER_LOYALTY_ADJUST
+  PLAN_UPGRADED
+  API_KEY_CREATED
+  API_KEY_REVOKED
+  WEBHOOK_CREATED
+  WEBHOOK_REVOKED
+  EXTERNAL_ORDER_SYNCED
 }
 
 enum MovementType {
@@ -115,6 +121,19 @@ enum ReportExportType {
   SALES_DETAIL
   INVENTORY_LEDGER
   DAILY_SUMMARY
+  ACCOUNTING_LEDGER
+}
+
+enum BillingStatus {
+  PENDING
+  PAID
+  FAILED
+}
+
+enum WebhookDeliveryStatus {
+  PENDING
+  DELIVERED
+  FAILED
 }
 
 model SubscriptionPlan {
@@ -174,6 +193,10 @@ model Tenant {
   stockTransfers       StockTransfer[]
   stockTransferItems   StockTransferItem[]
   reportExportJobs     ReportExportJob[]
+  subscriptionBillings SubscriptionBilling[]
+  apiKeys              TenantApiKey[]
+  webhookEndpoints     WebhookEndpoint[]
+  webhookDeliveries    WebhookDelivery[]
 
   @@index([planId])
   @@index([status])
@@ -259,6 +282,7 @@ model TenantMember {
   createdStockTransfers    StockTransfer[]   @relation("StockTransferCreator")
   receivedStockTransfers   StockTransfer[]   @relation("StockTransferReceiver")
   requestedReportExports   ReportExportJob[] @relation("ReportExportRequester")
+  createdApiKeys           TenantApiKey[]    @relation("TenantApiKeyCreator")
 
   @@unique([tenantId, userId])
   @@unique([tenantId, employeeCode])
@@ -578,7 +602,7 @@ model Invoice {
   id              String        @id @default(uuid()) @db.Uuid
   tenantId        String        @map("tenant_id") @db.Uuid
   branchId        String        @map("branch_id") @db.Uuid
-  shiftId         String        @map("shift_id") @db.Uuid
+  shiftId         String?       @map("shift_id") @db.Uuid
   customerId      String?       @map("customer_id") @db.Uuid
   cashierMemberId String        @map("cashier_member_id") @db.Uuid
   code            String        @db.Text
@@ -596,7 +620,7 @@ model Invoice {
 
   tenant        Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   branch        Branch           @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  shift         RegisterShift    @relation(fields: [shiftId], references: [id], onDelete: Restrict)
+  shift         RegisterShift?   @relation(fields: [shiftId], references: [id], onDelete: SetNull)
   customer      Customer?        @relation(fields: [customerId], references: [id], onDelete: SetNull)
   cashierMember TenantMember     @relation(fields: [cashierMemberId], references: [id], onDelete: Restrict)
   items         InvoiceItem[]
@@ -824,4 +848,87 @@ model ReportExportJob {
   @@index([tenantId, createdAt(sort: Desc)])
   @@index([tenantId, status])
   @@map("report_export_jobs")
+}
+
+// =============================================================================
+// 9. SAAS SUBSCRIPTION BILLING, OMNICHANNEL API KEYS & WEBHOOKS (Phase 5)
+// =============================================================================
+
+model SubscriptionBilling {
+  id            String               @id @default(uuid()) @db.Uuid
+  tenantId      String               @map("tenant_id") @db.Uuid
+  planCode      SubscriptionPlanCode @map("plan_code")
+  billingMonths Int                  @map("billing_months")
+  amount        Decimal              @db.Decimal(15, 2)
+  status        BillingStatus        @default(PENDING)
+  provider      String               @default("INTERNAL_QR") @db.Text
+  referenceNo   String?              @map("reference_no") @db.Text
+  periodStart   DateTime             @map("period_start") @db.Timestamptz
+  periodEnd     DateTime             @map("period_end") @db.Timestamptz
+  paidAt        DateTime?            @map("paid_at") @db.Timestamptz
+  createdAt     DateTime             @default(now()) @map("created_at") @db.Timestamptz
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@map("subscription_billings")
+}
+
+model TenantApiKey {
+  id                String    @id @default(uuid()) @db.Uuid
+  tenantId          String    @map("tenant_id") @db.Uuid
+  createdByMemberId String    @map("created_by_member_id") @db.Uuid
+  name              String    @db.Text
+  keyPrefix         String    @map("key_prefix") @db.Text
+  keyHash           String    @unique @map("key_hash") @db.Text
+  scopes            String[]  @default([]) @db.Text
+  isActive          Boolean   @default(true) @map("is_active")
+  lastUsedAt        DateTime? @map("last_used_at") @db.Timestamptz
+  revokedAt         DateTime? @map("revoked_at") @db.Timestamptz
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  tenant          Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  createdByMember TenantMember @relation("TenantApiKeyCreator", fields: [createdByMemberId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, isActive])
+  @@map("tenant_api_keys")
+}
+
+model WebhookEndpoint {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  name          String   @db.Text
+  targetUrl     String   @map("target_url") @db.Text
+  signingSecret String   @map("signing_secret") @db.Text
+  events        String[] @default([]) @db.Text
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  tenant     Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  deliveries WebhookDelivery[]
+
+  @@index([tenantId, isActive])
+  @@map("webhook_endpoints")
+}
+
+model WebhookDelivery {
+  id              String                @id @default(uuid()) @db.Uuid
+  tenantId        String                @map("tenant_id") @db.Uuid
+  endpointId      String                @map("endpoint_id") @db.Uuid
+  eventType       String                @map("event_type") @db.Text
+  payload         Json                  @default("{}") @db.JsonB
+  status          WebhookDeliveryStatus @default(PENDING)
+  httpStatus      Int?                  @map("http_status")
+  responseSnippet String?               @map("response_snippet") @db.Text
+  attemptCount    Int                   @default(0) @map("attempt_count")
+  deliveredAt     DateTime?             @map("delivered_at") @db.Timestamptz
+  createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz
+
+  tenant   Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  endpoint WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@index([tenantId, endpointId])
+  @@map("webhook_deliveries")
 }

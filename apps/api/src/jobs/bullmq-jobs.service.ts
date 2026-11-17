@@ -11,6 +11,7 @@ import type { AppEnv } from "../config/env";
 
 export const REPORT_EXPORT_QUEUE_NAME = "smartpos-report-exports";
 export const TRANSFER_EVENT_QUEUE_NAME = "smartpos-stock-transfers";
+export const WEBHOOK_DELIVERY_QUEUE_NAME = "smartpos-webhook-deliveries";
 
 export interface ReportExportJobPayload {
   tenantId: string;
@@ -23,6 +24,13 @@ export interface StockTransferJobPayload {
   event: "DISPATCHED" | "RECEIVED" | "CANCELLED";
 }
 
+export interface WebhookDeliveryJobPayload {
+  tenantId: string;
+  eventType: string;
+  endpointId?: string;
+  payload: Record<string, unknown>;
+}
+
 @Injectable()
 export class BullMqJobsService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(BullMqJobsService.name);
@@ -33,14 +41,19 @@ export class BullMqJobsService implements OnModuleInit, OnModuleDestroy {
   private workerConnection: IORedis | null = null;
   private reportExportQueue: Queue<ReportExportJobPayload> | null = null;
   private transferEventQueue: Queue<StockTransferJobPayload> | null = null;
+  private webhookDeliveryQueue: Queue<WebhookDeliveryJobPayload> | null = null;
   private reportExportWorker: Worker<ReportExportJobPayload> | null = null;
   private transferEventWorker: Worker<StockTransferJobPayload> | null = null;
+  private webhookDeliveryWorker: Worker<WebhookDeliveryJobPayload> | null = null;
 
   private reportExportProcessor:
     | ((payload: ReportExportJobPayload) => Promise<void>)
     | null = null;
   private transferEventProcessor:
     | ((payload: StockTransferJobPayload) => Promise<void>)
+    | null = null;
+  private webhookDeliveryProcessor:
+    | ((payload: WebhookDeliveryJobPayload) => Promise<void>)
     | null = null;
 
   constructor(private readonly configService: ConfigService<AppEnv, true>) {
@@ -72,30 +85,26 @@ export class BullMqJobsService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn(`BullMQ worker Redis error: ${err.message}`);
     });
 
+    const defaultJobOptions = {
+      attempts: 3,
+      backoff: { type: "exponential" as const, delay: 1000 },
+      removeOnComplete: { count: 200 },
+      removeOnFail: { count: 500 },
+    };
+
     this.reportExportQueue = new Queue<ReportExportJobPayload>(
       REPORT_EXPORT_QUEUE_NAME,
-      {
-        connection: this.queueConnection,
-        defaultJobOptions: {
-          attempts: 3,
-          backoff: { type: "exponential", delay: 1000 },
-          removeOnComplete: { count: 200 },
-          removeOnFail: { count: 500 },
-        },
-      },
+      { connection: this.queueConnection, defaultJobOptions },
     );
 
     this.transferEventQueue = new Queue<StockTransferJobPayload>(
       TRANSFER_EVENT_QUEUE_NAME,
-      {
-        connection: this.queueConnection,
-        defaultJobOptions: {
-          attempts: 3,
-          backoff: { type: "exponential", delay: 1000 },
-          removeOnComplete: { count: 200 },
-          removeOnFail: { count: 500 },
-        },
-      },
+      { connection: this.queueConnection, defaultJobOptions },
+    );
+
+    this.webhookDeliveryQueue = new Queue<WebhookDeliveryJobPayload>(
+      WEBHOOK_DELIVERY_QUEUE_NAME,
+      { connection: this.queueConnection, defaultJobOptions },
     );
 
     this.startWorkersIfReady();
@@ -112,6 +121,13 @@ export class BullMqJobsService implements OnModuleInit, OnModuleDestroy {
     handler: (payload: StockTransferJobPayload) => Promise<void>,
   ): void {
     this.transferEventProcessor = handler;
+    this.startWorkersIfReady();
+  }
+
+  registerWebhookDeliveryProcessor(
+    handler: (payload: WebhookDeliveryJobPayload) => Promise<void>,
+  ): void {
+    this.webhookDeliveryProcessor = handler;
     this.startWorkersIfReady();
   }
 
@@ -136,6 +152,20 @@ export class BullMqJobsService implements OnModuleInit, OnModuleDestroy {
     await this.transferEventQueue.add(`transfer-${payload.event.toLowerCase()}`, payload);
   }
 
+  async enqueueWebhookDelivery(payload: WebhookDeliveryJobPayload): Promise<void> {
+    if (this.disabled || !this.webhookDeliveryQueue) {
+      if (this.webhookDeliveryProcessor) {
+        await this.webhookDeliveryProcessor(payload);
+      }
+      return;
+    }
+
+    await this.webhookDeliveryQueue.add(
+      `webhook-${payload.eventType.toLowerCase()}`,
+      payload,
+    );
+  }
+
   private startWorkersIfReady(): void {
     if (this.disabled || !this.workerConnection) {
       return;
@@ -156,6 +186,25 @@ export class BullMqJobsService implements OnModuleInit, OnModuleDestroy {
       this.reportExportWorker.on("failed", (job, err) => {
         this.logger.error(
           `Report export job ${job?.id ?? "unknown"} failed: ${err.message}`,
+        );
+      });
+    }
+
+    if (this.webhookDeliveryProcessor && !this.webhookDeliveryWorker) {
+      const processor = this.webhookDeliveryProcessor;
+      this.webhookDeliveryWorker = new Worker<WebhookDeliveryJobPayload>(
+        WEBHOOK_DELIVERY_QUEUE_NAME,
+        async (job: Job<WebhookDeliveryJobPayload>) => {
+          await processor(job.data);
+        },
+        {
+          connection: this.workerConnection,
+          concurrency: 5,
+        },
+      );
+      this.webhookDeliveryWorker.on("failed", (job, err) => {
+        this.logger.error(
+          `Webhook delivery job ${job?.id ?? "unknown"} failed: ${err.message}`,
         );
       });
     }
@@ -189,8 +238,10 @@ export class BullMqJobsService implements OnModuleInit, OnModuleDestroy {
     await Promise.allSettled([
       this.reportExportWorker?.close(),
       this.transferEventWorker?.close(),
+      this.webhookDeliveryWorker?.close(),
       this.reportExportQueue?.close(),
       this.transferEventQueue?.close(),
+      this.webhookDeliveryQueue?.close(),
     ]);
 
     await Promise.allSettled([
