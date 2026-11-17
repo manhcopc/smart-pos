@@ -6,9 +6,9 @@ Lộ trình chia theo từng giai đoạn tăng trưởng thực tế, bám sát
 
 ## Phase 0: Khởi tạo Monorepo & Hạ tầng nền (Tuần 1)
 - [x] Tạo thư mục dự án `/Users/copc/Workspace/smart-pos`, nạp bộ Agent Skills vào `.agents/skills/` và cấu hình `docker-compose.yml` (PostgreSQL 16 + Redis 7).
-- [ ] Khởi tạo `apps/api` (NestJS + Prisma + Zod + Swagger) và `apps/web` (Next.js App Router + Tailwind + shadcn/ui + TanStack Query).
-- [ ] Khởi tạo `packages/shared` chứa Zod schemas, Error codes và RBAC Permission matrix dùng chung.
-- [ ] Thiết lập `PrismaModule` hỗ trợ Multi-tenant scoping + migration khởi tạo + PostgreSQL RLS helper.
+- [x] Khởi tạo `apps/api` (NestJS + Prisma + Zod + Swagger) và `apps/web` (Next.js App Router + Tailwind + shadcn/ui + TanStack Query).
+- [x] Khởi tạo `packages/shared` chứa Zod schemas, Error codes và RBAC Permission matrix dùng chung.
+- [x] Thiết lập `PrismaModule` hỗ trợ Multi-tenant scoping + migration khởi tạo + PostgreSQL RLS helper.
 
 ## Phase 1: SaaS Onboarding, Chi nhánh & RBAC (Tuần 2)
 - [ ] API & UI Đăng ký Shop (`POST /auth/register-tenant`): tạo Tenant, Branch mặc định, Owner account trong 1 transaction.
