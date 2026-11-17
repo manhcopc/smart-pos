@@ -105,17 +105,19 @@ async function tryRefreshSession(): Promise<boolean> {
   return inFlightRefresh;
 }
 
-export async function apiFetch<T>(
+async function fetchWithAuthRetry(
   path: string,
   init?: RequestInit,
-): Promise<T> {
+): Promise<Response> {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  const isFormData =
+    typeof FormData !== "undefined" && init?.body instanceof FormData;
 
   const executeFetch = () =>
     fetch(`${getApiBaseUrl()}${normalizedPath}`, {
       ...init,
       headers: {
-        "Content-Type": "application/json",
+        ...(isFormData ? {} : { "Content-Type": "application/json" }),
         ...init?.headers,
       },
       credentials: "include",
@@ -134,9 +136,43 @@ export async function apiFetch<T>(
     throw await parseErrorResponse(response);
   }
 
+  return response;
+}
+
+export async function apiFetch<T>(
+  path: string,
+  init?: RequestInit,
+): Promise<T> {
+  const response = await fetchWithAuthRetry(path, init);
   if (response.status === 204) {
     return undefined as T;
   }
-
   return (await response.json()) as T;
+}
+
+export async function apiFetchForm<T>(
+  path: string,
+  formData: FormData,
+): Promise<T> {
+  const response = await fetchWithAuthRetry(path, {
+    method: "POST",
+    body: formData,
+  });
+  return (await response.json()) as T;
+}
+
+export async function apiDownloadFile(
+  path: string,
+  fallbackFilename: string,
+): Promise<void> {
+  const response = await fetchWithAuthRetry(path, { method: "GET" });
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = fallbackFilename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(objectUrl);
 }

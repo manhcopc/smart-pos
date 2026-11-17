@@ -2,10 +2,14 @@
 
 import { PERMISSIONS } from "@smart-pos/shared";
 import {
+  AlertTriangleIcon,
+  BoxesIcon,
   Building2Icon,
+  PackagePlusIcon,
   ScanBarcodeIcon,
   ShieldCheckIcon,
   UsersIcon,
+  WarehouseIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
@@ -19,15 +23,32 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { useMe } from "@/hooks/use-auth";
-import { BUSINESS_TYPE_LABELS, ROLE_LABELS } from "@/lib/labels";
+import { useProducts } from "@/hooks/use-catalog";
+import { useInventory } from "@/hooks/use-inventory";
+import {
+  BUSINESS_TYPE_LABELS,
+  formatVndAmount,
+  ROLE_LABELS,
+} from "@/lib/labels";
 
 export default function DashboardPage() {
   const { data: profile } = useMe();
+  const permissions = new Set(profile?.member.permissions ?? []);
+  const canViewInventory = permissions.has(PERMISSIONS.INVENTORY_VIEW);
+
+  const defaultBranchId =
+    profile?.branches.find((b) => b.isDefault)?.id ?? profile?.branches[0]?.id;
+
+  const catalogQuery = useProducts({ page: 1, limit: 1 }, Boolean(profile) && canViewInventory);
+  const inventoryQuery = useInventory(
+    { page: 1, limit: 1, branchId: defaultBranchId },
+    Boolean(profile) && canViewInventory,
+  );
+
   if (!profile) {
     return null;
   }
 
-  const permissions = new Set(profile.member.permissions);
   const businessLabel =
     BUSINESS_TYPE_LABELS[
       profile.tenant.businessType as keyof typeof BUSINESS_TYPE_LABELS
@@ -49,6 +70,101 @@ export default function DashboardPage() {
           <Badge>{ROLE_LABELS[profile.member.role]}</Badge>
         </div>
       </header>
+
+      {canViewInventory ? (
+        <section className="grid gap-4 md:grid-cols-3">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <BoxesIcon className="size-4 text-primary" />
+                Danh mục SKU
+              </CardTitle>
+              <CardDescription>
+                Hạn mức theo gói {profile.tenant.planCode}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="text-2xl font-semibold">
+              {catalogQuery.data
+                ? `${catalogQuery.data.quota.activeSkus} / ${catalogQuery.data.quota.maxSkus}`
+                : "—"}
+            </CardContent>
+            <CardFooter>
+              <Button
+                variant="outline"
+                className="w-full"
+                render={<Link href="/dashboard/products" />}
+                nativeButton={false}
+              >
+                Mở danh mục hàng hóa
+              </Button>
+            </CardFooter>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <WarehouseIcon className="size-4 text-primary" />
+                Giá trị tồn kho (chi nhánh chính)
+              </CardTitle>
+              <CardDescription>
+                Tính theo giá vốn bình quân gia quyền (AVCO)
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="font-mono text-2xl font-semibold">
+              {inventoryQuery.data
+                ? formatVndAmount(inventoryQuery.data.summary.totalStockValue)
+                : "0 ₫"}
+            </CardContent>
+            <CardFooter className="flex gap-2">
+              <Button
+                variant="outline"
+                className="flex-1"
+                render={<Link href="/dashboard/inventory" />}
+                nativeButton={false}
+              >
+                Xem tồn &amp; Thẻ kho
+              </Button>
+              {permissions.has(PERMISSIONS.INVENTORY_RECEIVE) ? (
+                <Button
+                  className="flex-1"
+                  render={<Link href="/dashboard/purchase-orders" />}
+                  nativeButton={false}
+                >
+                  <PackagePlusIcon data-icon="inline-start" />
+                  Nhập hàng
+                </Button>
+              ) : null}
+            </CardFooter>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <AlertTriangleIcon className="size-4 text-destructive" />
+                Cảnh báo tồn tối thiểu
+              </CardTitle>
+              <CardDescription>
+                Số SKU có tồn kho &le; min_stock_alert
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="text-2xl font-semibold">
+              {inventoryQuery.data
+                ? `${inventoryQuery.data.summary.lowStockCount} SKU`
+                : "0 SKU"}
+            </CardContent>
+            <CardFooter>
+              <Button
+                variant="outline"
+                className="w-full"
+                render={<Link href="/dashboard/inventory?lowStock=true" />}
+                nativeButton={false}
+              >
+                Kiểm tra hàng sắp hết
+              </Button>
+            </CardFooter>
+          </Card>
+        </section>
+      ) : null}
 
       <section className="grid gap-4 md:grid-cols-3">
         <Card>

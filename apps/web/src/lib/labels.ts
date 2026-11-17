@@ -1,4 +1,11 @@
-import type { BusinessType, Permission, Role } from "@smart-pos/shared";
+import type {
+  BusinessType,
+  InventoryMovementType,
+  Permission,
+  PurchaseOrderStatus,
+  Role,
+  StockCountStatus,
+} from "@smart-pos/shared";
 
 export const ROLE_LABELS: Record<Role, string> = {
   OWNER: "Chủ cửa hàng",
@@ -6,6 +13,36 @@ export const ROLE_LABELS: Record<Role, string> = {
   CASHIER: "Thu ngân",
   WAREHOUSE: "Thủ kho",
 };
+
+export const MOVEMENT_TYPE_LABELS: Record<InventoryMovementType, string> = {
+  PURCHASE_IN: "Nhập hàng NCC",
+  PURCHASE_RETURN: "Trả hàng NCC",
+  SALE: "Bán hàng POS",
+  SALE_RETURN: "Khách trả hàng",
+  STOCK_COUNT: "Kiểm kho cân bằng",
+  TRANSFER_OUT: "Xuất chuyển kho",
+  TRANSFER_IN: "Nhập chuyển kho",
+};
+
+export const PO_STATUS_LABELS: Record<PurchaseOrderStatus, string> = {
+  DRAFT: "Nháp",
+  COMPLETED: "Đã nhập kho",
+  CANCELLED: "Đã hủy",
+};
+
+export const STOCK_COUNT_STATUS_LABELS: Record<StockCountStatus, string> = {
+  DRAFT: "Đang kiểm",
+  BALANCED: "Đã cân bằng",
+  CANCELLED: "Đã hủy",
+};
+
+export function formatVndAmount(decimalString: string | number): string {
+  const num = Number(decimalString);
+  if (!Number.isFinite(num)) return "0 ₫";
+  return `${new Intl.NumberFormat("vi-VN", {
+    maximumFractionDigits: 2,
+  }).format(num)} ₫`;
+}
 
 export const BUSINESS_TYPE_LABELS: Record<BusinessType, string> = {
   RETAIL: "Bán lẻ tổng hợp",

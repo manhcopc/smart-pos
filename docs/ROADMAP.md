@@ -17,11 +17,11 @@ Lộ trình chia theo từng giai đoạn tăng trưởng thực tế, bám sát
 - [x] Điều hướng tự động theo vai trò: Thu ngân -> `/pos`, Quản lý/Chủ shop -> `/dashboard`.
 
 ## Phase 2: Hàng hóa & Kho Thời gian thực (Tuần 3–4)
-- [ ] CRUD Nhóm hàng, Sản phẩm, Biến thể (SKU, Barcode, Giá vốn/Giá bán, Ngưỡng tồn tối thiểu).
-- [ ] Upload ảnh sản phẩm nén WebP qua Presigned URL (Cloudflare R2 / S3).
-- [ ] Import/Export danh mục sản phẩm Excel/CSV + Bộ lọc tồn kho theo chi nhánh.
-- [ ] Phiếu Nhập hàng NCC (`purchase_orders`) tự cập nhật giá vốn bình quân gia quyền (AVCO) + ghi `inventory_ledgers`.
-- [ ] Phiếu Kiểm kho (`stock_counts`) đối chiếu thực tế vs sổ sách + ghi `audit_logs`.
+- [x] CRUD Nhóm hàng, Sản phẩm, Biến thể (SKU, Barcode, Giá vốn/Giá bán, Ngưỡng tồn tối thiểu).
+- [x] Upload ảnh sản phẩm nén WebP qua Presigned URL (Cloudflare R2 / S3).
+- [x] Import/Export danh mục sản phẩm Excel/CSV + Bộ lọc tồn kho theo chi nhánh.
+- [x] Phiếu Nhập hàng NCC (`purchase_orders`) tự cập nhật giá vốn bình quân gia quyền (AVCO) + ghi `inventory_ledgers`.
+- [x] Phiếu Kiểm kho (`stock_counts`) đối chiếu thực tế vs sổ sách + ghi `audit_logs`.
 
 ## Phase 3: Màn hình POS Bán hàng & Ca Thu ngân (Tuần 5–6)
 - [ ] Luồng Mở ca -> Kiểm két tiền -> Bán hàng -> Đóng ca (`Z-Report`).
