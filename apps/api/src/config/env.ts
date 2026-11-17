@@ -31,6 +31,34 @@ export const envSchema = z.object({
     .enum(["true", "false"])
     .optional()
     .transform((v) => v !== "false"),
+  S3_ENDPOINT: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.trim().length > 0 ? v.trim() : undefined)),
+  S3_REGION: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.trim().length > 0 ? v.trim() : "auto")),
+  S3_BUCKET: z
+    .string()
+    .optional()
+    .transform((v) =>
+      v && v.trim().length > 0 ? v.trim() : "smart-pos-assets",
+    ),
+  S3_ACCESS_KEY_ID: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.trim().length > 0 ? v.trim() : undefined)),
+  S3_SECRET_ACCESS_KEY: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.trim().length > 0 ? v.trim() : undefined)),
+  S3_PUBLIC_BASE_URL: z
+    .string()
+    .optional()
+    .transform((v) =>
+      v && v.trim().length > 0 ? v.trim().replace(/\/+$/, "") : undefined,
+    ),
 });
 
 export type AppEnv = z.infer<typeof envSchema>;
