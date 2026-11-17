@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { type Permission, type Role } from "../permissions";
 import { tenantSlugSchema } from "./common";
 
 export const BUSINESS_TYPES = [
@@ -29,13 +30,14 @@ export const ownerLoginSchema = z
   .object({
     email: z.string().trim().toLowerCase().email().max(254),
     password: z.string().min(1).max(128),
+    tenantSlug: tenantSlugSchema.optional(),
   })
   .strict();
 
 export const cashierPinLoginSchema = z
   .object({
     tenantSlug: tenantSlugSchema,
-    employeeCode: z.string().trim().min(2).max(32),
+    employeeCode: z.string().trim().toUpperCase().min(2).max(32),
     pin: z
       .string()
       .trim()
@@ -43,6 +45,50 @@ export const cashierPinLoginSchema = z
   })
   .strict();
 
+export const refreshTokenBodySchema = z
+  .object({
+    refreshToken: z.string().min(1).optional(),
+  })
+  .strict();
+
 export type RegisterTenantInput = z.infer<typeof registerTenantSchema>;
 export type OwnerLoginInput = z.infer<typeof ownerLoginSchema>;
 export type CashierPinLoginInput = z.infer<typeof cashierPinLoginSchema>;
+export type RefreshTokenBodyInput = z.infer<typeof refreshTokenBodySchema>;
+
+export interface AuthBranchSummary {
+  id: string;
+  code: string;
+  name: string;
+  address: string | null;
+  phone: string | null;
+  isDefault: boolean;
+  isActive: boolean;
+}
+
+export interface AuthSessionResponse {
+  accessToken: string;
+  redirectTo: "/pos" | "/dashboard";
+  user: {
+    id: string;
+    email: string | null;
+    fullName: string;
+  };
+  tenant: {
+    id: string;
+    slug: string;
+    name: string;
+    businessType: string;
+    planCode: string;
+  };
+  member: {
+    id: string;
+    employeeCode: string;
+    role: Role;
+    allowedBranchIds: string[];
+    permissions: Permission[];
+  };
+  branches: AuthBranchSummary[];
+}
+
+export type AuthProfileResponse = Omit<AuthSessionResponse, "accessToken">;
