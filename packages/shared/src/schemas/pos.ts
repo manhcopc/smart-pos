@@ -64,10 +64,90 @@ export const createInvoiceSchema = z
     customerId: uuidSchema.optional().nullable(),
     discountAmount: nonNegativeMoneySchema.default("0.00"),
     syncSource: z.enum(["ONLINE", "OFFLINE_SYNC"]).default("ONLINE"),
+    supervisorApprovalToken: z.string().min(16).max(2048).optional(),
     items: z.array(createInvoiceItemSchema).min(1).max(200),
     payments: z.array(createInvoicePaymentSchema).min(1).max(10),
   })
   .strict();
+
+export const SUPERVISOR_APPROVAL_PERMISSIONS = [
+  "pos:price_override",
+  "pos:discount_override",
+  "pos:refund",
+  "pos:shift_manage",
+] as const;
+
+export const supervisorPinVerifySchema = z
+  .object({
+    branchId: uuidSchema,
+    permission: z.enum(SUPERVISOR_APPROVAL_PERMISSIONS),
+    managerEmployeeCode: z.string().trim().toUpperCase().max(32).optional(),
+    pin: z
+      .string()
+      .trim()
+      .regex(/^\d{4,8}$/, "Mã PIN Quản lý gồm 4 đến 8 chữ số"),
+  })
+  .strict();
+
+export const salesReturnItemInputSchema = z
+  .object({
+    invoiceItemId: uuidSchema,
+    quantity: positiveQuantitySchema,
+  })
+  .strict();
+
+export const REFUND_PAYMENT_METHODS = [
+  "CASH",
+  "BANK_TRANSFER_QR",
+  "CARD",
+  "STORE_CREDIT",
+] as const;
+
+export const createSalesReturnSchema = z
+  .object({
+    shiftId: uuidSchema.optional().nullable(),
+    refundMethod: z.enum(REFUND_PAYMENT_METHODS).default("CASH"),
+    reason: z.string().trim().min(2).max(500),
+    supervisorApprovalToken: z.string().min(16).max(2048).optional(),
+    items: z
+      .array(salesReturnItemInputSchema)
+      .min(1)
+      .max(200)
+      .superRefine((items, ctx) => {
+        const seen = new Set<string>();
+        items.forEach((item, idx) => {
+          if (seen.has(item.invoiceItemId)) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: [idx, "invoiceItemId"],
+              message: "Duplicate invoiceItemId in return items",
+            });
+          }
+          seen.add(item.invoiceItemId);
+        });
+      }),
+  })
+  .strict();
+
+export const voidInvoiceSchema = z
+  .object({
+    reason: z.string().trim().min(2).max(500),
+    supervisorApprovalToken: z.string().min(16).max(2048).optional(),
+  })
+  .strict();
+
+export const cashDrawerOpenSchema = z
+  .object({
+    branchId: uuidSchema,
+    reason: z.string().trim().min(2).max(300),
+    supervisorApprovalToken: z.string().min(16).max(2048).optional(),
+  })
+  .strict();
+
+export const salesReturnListQuerySchema = paginationQuerySchema.extend({
+  branchId: uuidSchema.optional(),
+  invoiceId: uuidSchema.optional(),
+});
 
 export const posCatalogSyncQuerySchema = z.object({
   branchId: uuidSchema,
@@ -87,6 +167,11 @@ export type CreateInvoicePaymentInput = z.infer<typeof createInvoicePaymentSchem
 export type CreateInvoiceInput = z.infer<typeof createInvoiceSchema>;
 export type PosCatalogSyncQuery = z.infer<typeof posCatalogSyncQuerySchema>;
 export type InvoiceListQuery = z.infer<typeof invoiceListQuerySchema>;
+export type SupervisorPinVerifyInput = z.infer<typeof supervisorPinVerifySchema>;
+export type CreateSalesReturnInput = z.infer<typeof createSalesReturnSchema>;
+export type VoidInvoiceInput = z.infer<typeof voidInvoiceSchema>;
+export type CashDrawerOpenInput = z.infer<typeof cashDrawerOpenSchema>;
+export type SalesReturnListQuery = z.infer<typeof salesReturnListQuerySchema>;
 
 export interface PosCatalogItem {
   variantId: string;
@@ -162,6 +247,7 @@ export interface InvoiceLineResponse {
   productName: string;
   sku: string;
   quantity: string;
+  returnedQty?: string;
   unitPrice: string;
   discountAmount: string;
   taxAmount: string;
@@ -186,6 +272,9 @@ export interface InvoiceReceiptResponse {
   shiftId: string;
   cashierMemberId: string;
   cashierName: string;
+  customerId?: string | null;
+  customerName?: string | null;
+  earnedPoints?: number;
   status: string;
   subtotal: string;
   discountAmount: string;
@@ -196,6 +285,47 @@ export interface InvoiceReceiptResponse {
   createdAt: string;
   items: InvoiceLineResponse[];
   payments: InvoicePaymentResponse[];
+}
+
+export interface SupervisorApprovalResponse {
+  approvalToken: string;
+  approverMemberId: string;
+  approverName: string;
+  approverEmployeeCode: string;
+  permission: (typeof SUPERVISOR_APPROVAL_PERMISSIONS)[number];
+  expiresAt: string;
+}
+
+export interface SalesReturnLineResponse {
+  id: string;
+  invoiceItemId: string;
+  variantId: string;
+  sku: string;
+  productName: string;
+  quantity: string;
+  refundAmount: string;
+}
+
+export interface SalesReturnResponse {
+  id: string;
+  code: string;
+  branchId: string;
+  branchName: string;
+  invoiceId: string;
+  invoiceCode: string;
+  invoiceStatus: string;
+  shiftId: string | null;
+  processedByName: string;
+  status: string;
+  totalRefundAmount: string;
+  refundMethod: PaymentMethod;
+  reason: string | null;
+  createdAt: string;
+  items: SalesReturnLineResponse[];
+}
+
+export interface InvoiceDetailResponse extends InvoiceReceiptResponse {
+  salesReturns: SalesReturnResponse[];
 }
 
 export interface PosStockStreamEvent {

@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { calculatePosInvoiceTotals, PosMathError } from "../pos-math";
+import { parseMoney } from "../money";
+import {
+  calculateLoyaltyPointsEarned,
+  calculateLoyaltyPointsRequired,
+  calculatePosInvoiceTotals,
+  calculateSalesReturnTotals,
+  PosMathError,
+} from "../pos-math";
 
 describe("POS fixed-point checkout calculation engine", () => {
   it("computes line discounts, VAT, invoice discount, split payments, and net cash drawer retention", () => {
@@ -65,6 +72,72 @@ describe("POS fixed-point checkout calculation engine", () => {
           },
         ],
         payments: [{ method: "CASH", amount: "0.00" }],
+      }),
+    ).toThrowError(PosMathError);
+  });
+
+  it("calculates loyalty points earned/redeemed and rejects non-1000 multiples", () => {
+    expect(calculateLoyaltyPointsEarned(parseMoney("95000.00"))).toBe(9);
+    expect(calculateLoyaltyPointsRequired(parseMoney("15000.00"))).toBe(15);
+    expect(() =>
+      calculateLoyaltyPointsRequired(parseMoney("15500.00")),
+    ).toThrowError(PosMathError);
+  });
+
+  it("computes multi-step proportional sales returns without exceeding invoice total", () => {
+    const firstReturn = calculateSalesReturnTotals({
+      invoiceSubtotalAfterLineDiscountAndTaxMinor: parseMoney("200000.00"),
+      invoiceTotalMinor: parseMoney("180000.00"),
+      priorRefundedTotalMinor: 0n,
+      lines: [
+        {
+          invoiceItemId: "item-1",
+          originalQuantity: "3.000",
+          previouslyReturnedQuantity: "0.000",
+          returnQuantity: "1.000",
+          lineTotal: "200000.00",
+          lineTaxAmount: "0.00",
+          unitCostSnapshot: "40000.00",
+        },
+      ],
+    });
+    expect(firstReturn.totalRefundMinor).toBe(parseMoney("60000.00"));
+    expect(firstReturn.totalCogsReversalMinor).toBe(parseMoney("40000.00"));
+
+    const secondReturn = calculateSalesReturnTotals({
+      invoiceSubtotalAfterLineDiscountAndTaxMinor: parseMoney("200000.00"),
+      invoiceTotalMinor: parseMoney("180000.00"),
+      priorRefundedTotalMinor: firstReturn.totalRefundMinor,
+      lines: [
+        {
+          invoiceItemId: "item-1",
+          originalQuantity: "3.000",
+          previouslyReturnedQuantity: "1.000",
+          returnQuantity: "2.000",
+          lineTotal: "200000.00",
+          lineTaxAmount: "0.00",
+          unitCostSnapshot: "40000.00",
+        },
+      ],
+    });
+    expect(secondReturn.totalRefundMinor).toBe(parseMoney("120000.00"));
+
+    expect(() =>
+      calculateSalesReturnTotals({
+        invoiceSubtotalAfterLineDiscountAndTaxMinor: parseMoney("200000.00"),
+        invoiceTotalMinor: parseMoney("180000.00"),
+        priorRefundedTotalMinor: parseMoney("180000.00"),
+        lines: [
+          {
+            invoiceItemId: "item-1",
+            originalQuantity: "3.000",
+            previouslyReturnedQuantity: "3.000",
+            returnQuantity: "1.000",
+            lineTotal: "200000.00",
+            lineTaxAmount: "0.00",
+            unitCostSnapshot: "40000.00",
+          },
+        ],
       }),
     ).toThrowError(PosMathError);
   });

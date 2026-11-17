@@ -2,11 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
   cashierPinLoginSchema,
   createBranchSchema,
+  createCustomerSchema,
   createInvoiceSchema,
   createProductSchema,
   createPurchaseOrderSchema,
+  createReportExportSchema,
+  createSalesReturnSchema,
   createStaffMemberSchema,
   createStockCountSchema,
+  createStockTransferSchema,
   registerTenantSchema,
   updateBranchSchema,
 } from "../index";
@@ -118,5 +122,52 @@ describe("shared Zod schemas", () => {
       ],
     });
     expect(validSc.success).toBe(true);
+  });
+
+  it("validates Phase 4 CRM, sales return, stock transfer, and export schemas", () => {
+    expect(
+      createCustomerSchema.safeParse({
+        name: "Nguyễn Văn A",
+        phone: "0905111222",
+      }).success,
+    ).toBe(true);
+
+    expect(
+      createSalesReturnSchema.safeParse({
+        reason: "Khách đổi size",
+        refundMethod: "CASH",
+        items: [
+          {
+            invoiceItemId: "550e8400-e29b-41d4-a716-446655440010",
+            quantity: "1.000",
+          },
+          {
+            invoiceItemId: "550e8400-e29b-41d4-a716-446655440010",
+            quantity: "1.000",
+          },
+        ],
+      }).success,
+    ).toBe(false);
+
+    expect(
+      createStockTransferSchema.safeParse({
+        fromBranchId: "550e8400-e29b-41d4-a716-446655440001",
+        toBranchId: "550e8400-e29b-41d4-a716-446655440001",
+        items: [
+          {
+            variantId: "550e8400-e29b-41d4-a716-446655440010",
+            quantity: "2",
+          },
+        ],
+      }).success,
+    ).toBe(false);
+
+    expect(
+      createReportExportSchema.safeParse({
+        reportType: "SALES_DETAIL",
+        from: "2026-11-01",
+        to: "2026-11-17",
+      }).success,
+    ).toBe(true);
   });
 });
