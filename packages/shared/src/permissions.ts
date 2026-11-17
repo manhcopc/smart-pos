@@ -18,6 +18,8 @@ export const PERMISSIONS = {
   STAFF_MANAGE: "staff:manage",
   BRANCH_MANAGE: "branch:manage",
   AUDIT_VIEW: "audit:view",
+  BILLING_MANAGE: "billing:manage",
+  INTEGRATION_MANAGE: "integration:manage",
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -40,6 +42,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     PERMISSIONS.REPORT_FINANCIAL,
     PERMISSIONS.STAFF_MANAGE,
     PERMISSIONS.AUDIT_VIEW,
+    PERMISSIONS.INTEGRATION_MANAGE,
   ],
   CASHIER: [
     PERMISSIONS.POS_SELL,

@@ -20,6 +20,12 @@ export const AUDIT_ACTIONS = [
   "TRANSFER_DISPATCHED",
   "TRANSFER_RECEIVED",
   "CUSTOMER_LOYALTY_ADJUST",
+  "PLAN_UPGRADED",
+  "API_KEY_CREATED",
+  "API_KEY_REVOKED",
+  "WEBHOOK_CREATED",
+  "WEBHOOK_REVOKED",
+  "EXTERNAL_ORDER_SYNCED",
 ] as const;
 
 export type AuditActionType = (typeof AUDIT_ACTIONS)[number];
@@ -35,6 +41,7 @@ export const REPORT_EXPORT_TYPES = [
   "SALES_DETAIL",
   "INVENTORY_LEDGER",
   "DAILY_SUMMARY",
+  "ACCOUNTING_LEDGER",
 ] as const;
 export type ReportExportType = (typeof REPORT_EXPORT_TYPES)[number];
 
