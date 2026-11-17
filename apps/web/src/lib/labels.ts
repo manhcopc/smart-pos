@@ -1,11 +1,20 @@
 import type {
   BusinessType,
   InventoryMovementType,
+  PaymentMethod,
   Permission,
   PurchaseOrderStatus,
   Role,
   StockCountStatus,
 } from "@smart-pos/shared";
+
+export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+  CASH: "Tiền mặt",
+  BANK_TRANSFER_QR: "Chuyển khoản / VietQR",
+  CARD: "Thẻ / POS",
+  LOYALTY_POINTS: "Điểm thưởng",
+  STORE_CREDIT: "Ghi nợ / Trả trước",
+};
 
 export const ROLE_LABELS: Record<Role, string> = {
   OWNER: "Chủ cửa hàng",

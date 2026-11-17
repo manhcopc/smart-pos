@@ -131,3 +131,25 @@
     @apply font-sans;
   }
 }
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .pos-printable-receipt,
+  .pos-printable-receipt * {
+    visibility: visible;
+  }
+  .pos-printable-receipt {
+    position: fixed;
+    left: 0;
+    top: 0;
+    margin: 0;
+    padding: 4mm;
+    background: white;
+    color: black;
+  }
+  .pos-no-print {
+    display: none !important;
+  }
+}

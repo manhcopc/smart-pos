@@ -24,12 +24,12 @@ Lộ trình chia theo từng giai đoạn tăng trưởng thực tế, bám sát
 - [x] Phiếu Kiểm kho (`stock_counts`) đối chiếu thực tế vs sổ sách + ghi `audit_logs`.
 
 ## Phase 3: Màn hình POS Bán hàng & Ca Thu ngân (Tuần 5–6)
-- [ ] Luồng Mở ca -> Kiểm két tiền -> Bán hàng -> Đóng ca (`Z-Report`).
-- [ ] Đồng bộ danh mục chi nhánh về `IndexedDB` trên trình duyệt -> tìm kiếm & quét mã vạch < 50ms.
-- [ ] Màn hình POS: nhiều tab hóa đơn chờ, Quick-keys, chiết khấu, **Split Payments** (Tiền mặt + VietQR + Thẻ).
-- [ ] Transaction thanh toán an toàn (`RepeatableRead` + atomic guard `on_hand >= qty` + `idempotency_key`).
-- [ ] In hóa đơn nhiệt K58/K80 (`@media print`) + đẩy tồn kho realtime qua NestJS WebSocket/SSE.
-- [ ] Viết bộ test `Vitest` cho toàn bộ phép tính tiền, chiết khấu, VAT, trừ kho đồng thời.
+- [x] Luồng Mở ca -> Kiểm két tiền -> Bán hàng -> Đóng ca (`Z-Report`).
+- [x] Đồng bộ danh mục chi nhánh về `IndexedDB` trên trình duyệt -> tìm kiếm & quét mã vạch < 50ms.
+- [x] Màn hình POS: nhiều tab hóa đơn chờ, Quick-keys, chiết khấu, **Split Payments** (Tiền mặt + VietQR + Thẻ).
+- [x] Transaction thanh toán an toàn (`RepeatableRead` + atomic guard `on_hand >= qty` + `idempotency_key`).
+- [x] In hóa đơn nhiệt K58/K80 (`@media print`) + đẩy tồn kho realtime qua NestJS WebSocket/SSE.
+- [x] Viết bộ test `Vitest` cho toàn bộ phép tính tiền, chiết khấu, VAT, trừ kho đồng thời.
 
 ## Phase 4: Báo cáo, Hoàn trả, CRM & Queue nền (Tuần 7–8)
 - [ ] Luồng Trả hàng / Hoàn tiền (`sales_returns`) kiểm soát trả lũy kế + hoàn kho nguyên tử.
