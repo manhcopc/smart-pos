@@ -131,15 +131,23 @@ export default function HomePage() {
             Khởi tạo Tenant, chi nhánh mặc định và phân quyền RBAC chỉ trong một
             giao dịch an toàn.
           </CardContent>
-          <CardFooter>
+          <CardFooter className="flex gap-2">
             <Button
               variant="secondary"
-              className="w-full"
+              className="flex-1"
               render={<Link href="/login" />}
               nativeButton={false}
             >
               <LogInIcon data-icon="inline-start" />
               Cổng Đăng nhập
+            </Button>
+            <Button
+              variant="outline"
+              className="flex-1"
+              render={<Link href="/register" />}
+              nativeButton={false}
+            >
+              Mở shop
             </Button>
           </CardFooter>
         </Card>

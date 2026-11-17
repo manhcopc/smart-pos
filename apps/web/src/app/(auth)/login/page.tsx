@@ -1,9 +1,17 @@
 "use client";
 
 import { cashierPinLoginSchema, ownerLoginSchema } from "@smart-pos/shared";
-import { KeyRoundIcon, MailIcon, StoreIcon } from "lucide-react";
+import {
+  AlertCircleIcon,
+  KeyRoundIcon,
+  MailIcon,
+  StoreIcon,
+} from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
+import { toast } from "sonner";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,46 +22,86 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+} from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useCashierPinLogin, useOwnerLogin } from "@/hooks/use-auth";
+import { formatApiError } from "@/lib/api-client";
 
 export default function LoginPage() {
+  const router = useRouter();
+  const ownerLoginMutation = useOwnerLogin();
+  const cashierPinMutation = useCashierPinLogin();
+
   const [ownerEmail, setOwnerEmail] = useState("");
   const [ownerPassword, setOwnerPassword] = useState("");
+  const [ownerTenantSlug, setOwnerTenantSlug] = useState("");
+
   const [tenantSlug, setTenantSlug] = useState("");
   const [employeeCode, setEmployeeCode] = useState("");
   const [pin, setPin] = useState("");
-  const [feedback, setFeedback] = useState<string | null>(null);
 
-  function handleOwnerSubmit(event: FormEvent<HTMLFormElement>) {
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  async function handleOwnerSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setErrorMessage(null);
+
     const parsed = ownerLoginSchema.safeParse({
       email: ownerEmail,
       password: ownerPassword,
+      ...(ownerTenantSlug.trim() ? { tenantSlug: ownerTenantSlug.trim() } : {}),
     });
+
     if (!parsed.success) {
-      setFeedback(parsed.error.issues[0]?.message ?? "Dữ liệu không hợp lệ");
+      setErrorMessage(
+        parsed.error.issues[0]?.message ?? "Thông tin đăng nhập chưa hợp lệ",
+      );
       return;
     }
-    setFeedback(
-      "Định dạng hợp lệ — API xác thực sẽ được nối ở Phase 1 (/auth/login).",
-    );
+
+    try {
+      const session = await ownerLoginMutation.mutateAsync(parsed.data);
+      toast.success(`Xin chào ${session.user.fullName}`);
+      router.replace(session.redirectTo);
+    } catch (error) {
+      setErrorMessage(
+        formatApiError(error, "Không thể đăng nhập. Vui lòng thử lại."),
+      );
+    }
   }
 
-  function handleCashierSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleCashierSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setErrorMessage(null);
+
     const parsed = cashierPinLoginSchema.safeParse({
       tenantSlug,
       employeeCode,
       pin,
     });
+
     if (!parsed.success) {
-      setFeedback(parsed.error.issues[0]?.message ?? "Dữ liệu không hợp lệ");
+      setErrorMessage(
+        parsed.error.issues[0]?.message ?? "Thông tin PIN chưa hợp lệ",
+      );
       return;
     }
-    setFeedback(
-      "Định dạng hợp lệ — API đổi ca nhanh sẽ được nối ở Phase 1 (/auth/cashier-pin).",
-    );
+
+    try {
+      const session = await cashierPinMutation.mutateAsync(parsed.data);
+      toast.success(`Ca làm việc: ${session.user.fullName}`);
+      router.replace(session.redirectTo);
+    } catch (error) {
+      setErrorMessage(
+        formatApiError(error, "Đăng nhập PIN thất bại. Vui lòng thử lại."),
+      );
+    }
   }
 
   return (
@@ -63,7 +111,7 @@ export default function LoginPage() {
           <StoreIcon className="size-4 text-primary" />
           Smart-POS
         </Link>
-        <Badge variant="outline">Phase 0 Shell</Badge>
+        <Badge variant="outline">Multi-Tenant Auth</Badge>
       </div>
 
       <Card>
@@ -73,48 +121,79 @@ export default function LoginPage() {
             Chọn chế độ đăng nhập cho Quản lý hoặc Thu ngân tại quầy.
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <Tabs defaultValue="owner" className="w-full">
+        <CardContent className="flex flex-col gap-4">
+          {errorMessage ? (
+            <Alert variant="destructive">
+              <AlertCircleIcon />
+              <AlertTitle>Không thể đăng nhập</AlertTitle>
+              <AlertDescription>{errorMessage}</AlertDescription>
+            </Alert>
+          ) : null}
+
+          <Tabs
+            defaultValue="owner"
+            className="w-full"
+            onValueChange={() => setErrorMessage(null)}
+          >
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="owner">Chủ shop / Quản lý</TabsTrigger>
               <TabsTrigger value="cashier">Thu ngân (PIN)</TabsTrigger>
             </TabsList>
 
             <TabsContent value="owner" className="pt-4">
-              <form
-                onSubmit={handleOwnerSubmit}
-                className="flex flex-col gap-3"
-              >
-                <div className="flex flex-col gap-1.5">
-                  <label htmlFor="owner-email" className="text-xs font-medium">
-                    Email
-                  </label>
-                  <Input
-                    id="owner-email"
-                    type="email"
-                    placeholder="chu-shop@cuahang.vn"
-                    value={ownerEmail}
-                    onChange={(e) => setOwnerEmail(e.target.value)}
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <label
-                    htmlFor="owner-password"
-                    className="text-xs font-medium"
-                  >
-                    Mật khẩu
-                  </label>
-                  <Input
-                    id="owner-password"
-                    type="password"
-                    placeholder="••••••••"
-                    value={ownerPassword}
-                    onChange={(e) => setOwnerPassword(e.target.value)}
-                  />
-                </div>
-                <Button type="submit" className="mt-1 w-full">
+              <form onSubmit={handleOwnerSubmit} className="flex flex-col gap-4">
+                <FieldGroup>
+                  <Field>
+                    <FieldLabel htmlFor="owner-email">Email</FieldLabel>
+                    <Input
+                      id="owner-email"
+                      type="email"
+                      autoComplete="email"
+                      placeholder="chu-shop@cuahang.vn"
+                      value={ownerEmail}
+                      onChange={(e) => setOwnerEmail(e.target.value)}
+                    />
+                  </Field>
+
+                  <Field>
+                    <FieldLabel htmlFor="owner-password">Mật khẩu</FieldLabel>
+                    <Input
+                      id="owner-password"
+                      type="password"
+                      autoComplete="current-password"
+                      placeholder="••••••••"
+                      value={ownerPassword}
+                      onChange={(e) => setOwnerPassword(e.target.value)}
+                    />
+                  </Field>
+
+                  <Field>
+                    <FieldLabel htmlFor="owner-tenant-slug">
+                      Mã cửa hàng (tùy chọn)
+                    </FieldLabel>
+                    <Input
+                      id="owner-tenant-slug"
+                      placeholder="chi-nhanh-cua-toi"
+                      value={ownerTenantSlug}
+                      onChange={(e) =>
+                        setOwnerTenantSlug(e.target.value.toLowerCase())
+                      }
+                    />
+                    <FieldDescription>
+                      Chỉ cần nhập khi email gắn với nhiều cửa hàng.
+                    </FieldDescription>
+                  </Field>
+                </FieldGroup>
+
+                <Button
+                  type="submit"
+                  className="w-full"
+                  disabled={ownerLoginMutation.isPending}
+                >
                   <MailIcon data-icon="inline-start" />
-                  Đăng nhập Quản trị
+                  {ownerLoginMutation.isPending
+                    ? "Đang xác thực..."
+                    : "Đăng nhập Quản trị"}
                 </Button>
               </form>
             </TabsContent>
@@ -122,62 +201,74 @@ export default function LoginPage() {
             <TabsContent value="cashier" className="pt-4">
               <form
                 onSubmit={handleCashierSubmit}
-                className="flex flex-col gap-3"
+                className="flex flex-col gap-4"
               >
-                <div className="flex flex-col gap-1.5">
-                  <label htmlFor="tenant-slug" className="text-xs font-medium">
-                    Mã gian hàng
-                  </label>
-                  <Input
-                    id="tenant-slug"
-                    placeholder="vi-du-shop"
-                    value={tenantSlug}
-                    onChange={(e) => setTenantSlug(e.target.value)}
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <label
-                    htmlFor="employee-code"
-                    className="text-xs font-medium"
-                  >
-                    Mã nhân viên
-                  </label>
-                  <Input
-                    id="employee-code"
-                    placeholder="NV01"
-                    value={employeeCode}
-                    onChange={(e) => setEmployeeCode(e.target.value)}
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <label htmlFor="cashier-pin" className="text-xs font-medium">
-                    Mã PIN (4–8 số)
-                  </label>
-                  <Input
-                    id="cashier-pin"
-                    type="password"
-                    inputMode="numeric"
-                    placeholder="••••"
-                    value={pin}
-                    onChange={(e) => setPin(e.target.value)}
-                  />
-                </div>
-                <Button type="submit" className="mt-1 w-full">
+                <FieldGroup>
+                  <Field>
+                    <FieldLabel htmlFor="tenant-slug">Mã cửa hàng</FieldLabel>
+                    <Input
+                      id="tenant-slug"
+                      placeholder="vi-du-shop"
+                      value={tenantSlug}
+                      onChange={(e) =>
+                        setTenantSlug(e.target.value.toLowerCase())
+                      }
+                    />
+                  </Field>
+
+                  <Field>
+                    <FieldLabel htmlFor="employee-code">
+                      Mã nhân viên
+                    </FieldLabel>
+                    <Input
+                      id="employee-code"
+                      placeholder="TN01"
+                      value={employeeCode}
+                      onChange={(e) =>
+                        setEmployeeCode(e.target.value.toUpperCase())
+                      }
+                    />
+                  </Field>
+
+                  <Field>
+                    <FieldLabel htmlFor="cashier-pin">
+                      Mã PIN (4–8 số)
+                    </FieldLabel>
+                    <Input
+                      id="cashier-pin"
+                      type="password"
+                      inputMode="numeric"
+                      autoComplete="off"
+                      placeholder="••••"
+                      value={pin}
+                      onChange={(e) => setPin(e.target.value)}
+                    />
+                  </Field>
+                </FieldGroup>
+
+                <Button
+                  type="submit"
+                  className="w-full"
+                  disabled={cashierPinMutation.isPending}
+                >
                   <KeyRoundIcon data-icon="inline-start" />
-                  Vào quầy POS
+                  {cashierPinMutation.isPending
+                    ? "Đang kiểm tra PIN..."
+                    : "Vào quầy POS"}
                 </Button>
               </form>
             </TabsContent>
           </Tabs>
-
-          {feedback ? (
-            <p className="mt-4 text-xs text-muted-foreground">{feedback}</p>
-          ) : null}
         </CardContent>
         <CardFooter className="justify-between text-xs text-muted-foreground">
-          <span>Multi-tenant SaaS</span>
+          <Link
+            href="/register"
+            className="font-medium text-foreground underline underline-offset-4"
+          >
+            Đăng ký mở shop mới
+          </Link>
           <Link href="/" className="underline underline-offset-4">
-            Quay lại trang chủ
+            Trang chủ
           </Link>
         </CardFooter>
       </Card>

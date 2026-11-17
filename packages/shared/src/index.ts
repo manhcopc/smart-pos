@@ -3,5 +3,7 @@ export * from "./error-codes";
 export * from "./money";
 export * from "./schemas/common";
 export * from "./schemas/auth";
+export * from "./schemas/branch";
+export * from "./schemas/staff";
 export * from "./schemas/catalog";
 export * from "./schemas/pos";
