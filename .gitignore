@@ -1,0 +1,26 @@
+# Dependencies
+node_modules
+.pnp
+.pnp.*
+
+# Build outputs
+dist
+.next
+out
+.turbo
+*.tsbuildinfo
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+
+# Logs & OS
+*.log
+.DS_Store
+Thumbs.db
+
+# Coverage & Test artifacts
+coverage
+playwright-report
+test-results
