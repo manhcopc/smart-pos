@@ -11,7 +11,17 @@ import type {
   WebhookEndpointItem,
 } from "@smart-pos/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ApiClientError, apiFetch, getApiBaseUrl } from "@/lib/api-client";
+import {
+  ApiClientError,
+  apiFetch,
+  getApiBaseUrl,
+  triggerBlobDownload,
+} from "@/lib/api-client";
+import { isMockDataMode } from "@/lib/data-mode";
+import {
+  buildMockDownloadBlob,
+  makeAccountingMockFileName,
+} from "@/lib/mock-data/mock-router";
 
 export const integrationKeys = {
   all: ["integrations"] as const,
@@ -135,6 +145,13 @@ export function useTestWebhook() {
 export async function downloadAccountingWorkbook(
   query: AccountingExportQuery = {},
 ): Promise<{ fileName: string; sizeBytes: number }> {
+  if (isMockDataMode()) {
+    const fileName = makeAccountingMockFileName(query);
+    const blob = buildMockDownloadBlob("/integrations/accounting/export");
+    triggerBlobDownload(blob, fileName);
+    return { fileName, sizeBytes: blob.size };
+  }
+
   const sp = new URLSearchParams();
   if (query.branchId) sp.set("branchId", query.branchId);
   if (query.from) sp.set("from", query.from);
@@ -158,16 +175,7 @@ export async function downloadAccountingWorkbook(
   const fileMatch = /filename="([^"]+)"/.exec(disposition);
   const fileName = fileMatch?.[1] ?? "smartpos-accounting-ledger.xlsx";
 
-  if (typeof window !== "undefined" && typeof URL.createObjectURL === "function") {
-    const objectUrl = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = objectUrl;
-    link.download = fileName;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(objectUrl);
-  }
+  triggerBlobDownload(blob, fileName);
 
   return { fileName, sizeBytes: blob.size };
 }

@@ -22,6 +22,7 @@ import type {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { apiFetch, getApiBaseUrl } from "@/lib/api-client";
+import { isMockDataMode } from "@/lib/data-mode";
 import {
   applyPosStockPatch,
   type CachedPosCatalog,
@@ -79,12 +80,16 @@ export function usePosCatalog(
   });
 
   useEffect(() => {
-    if (
-      !tenantId ||
-      !branchId ||
-      !enabled ||
-      typeof EventSource === "undefined"
-    ) {
+    if (!tenantId || !branchId || !enabled) {
+      return;
+    }
+
+    if (isMockDataMode()) {
+      setSseConnected(true);
+      return () => setSseConnected(false);
+    }
+
+    if (typeof EventSource === "undefined") {
       return;
     }
 
