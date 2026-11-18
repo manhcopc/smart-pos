@@ -15,6 +15,10 @@ import {
   WarehouseIcon,
 } from "lucide-react";
 import Link from "next/link";
+import {
+  CardGridSkeleton,
+  QueryErrorAlert,
+} from "@/components/shared/page-states";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,6 +29,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useMe } from "@/hooks/use-auth";
 import { useProducts } from "@/hooks/use-catalog";
 import { useInventory } from "@/hooks/use-inventory";
@@ -44,7 +55,10 @@ export default function DashboardPage() {
   const defaultBranchId =
     profile?.branches.find((b) => b.isDefault)?.id ?? profile?.branches[0]?.id;
 
-  const catalogQuery = useProducts({ page: 1, limit: 1 }, Boolean(profile) && canViewInventory);
+  const catalogQuery = useProducts(
+    { page: 1, limit: 1 },
+    Boolean(profile) && canViewInventory,
+  );
   const inventoryQuery = useInventory(
     { page: 1, limit: 1, branchId: defaultBranchId },
     Boolean(profile) && canViewInventory,
@@ -55,7 +69,12 @@ export default function DashboardPage() {
   );
 
   if (!profile) {
-    return null;
+    return (
+      <CardGridSkeleton
+        count={4}
+        columnsClass="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"
+      />
+    );
   }
 
   const businessLabel =
@@ -80,6 +99,21 @@ export default function DashboardPage() {
         </div>
       </header>
 
+      {canViewFinancialReports && overviewQuery.isError ? (
+        <QueryErrorAlert
+          title="Không thể tải số liệu kinh doanh"
+          error={overviewQuery.error}
+          onRetry={() => void overviewQuery.refetch()}
+        />
+      ) : null}
+
+      {canViewFinancialReports && overviewQuery.isLoading ? (
+        <CardGridSkeleton
+          count={4}
+          columnsClass="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"
+        />
+      ) : null}
+
       {canViewFinancialReports && overviewQuery.data ? (
         <section className="flex flex-col gap-4">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -90,7 +124,7 @@ export default function DashboardPage() {
                   Doanh thu thuần (30 ngày)
                 </CardTitle>
               </CardHeader>
-              <CardContent className="font-mono text-2xl font-semibold">
+              <CardContent className="font-mono text-2xl font-semibold tabular-nums">
                 {formatVndAmount(overviewQuery.data.kpis.netRevenue)}
               </CardContent>
             </Card>
@@ -102,7 +136,7 @@ export default function DashboardPage() {
                   Lợi nhuận gộp (30 ngày)
                 </CardTitle>
               </CardHeader>
-              <CardContent className="font-mono text-2xl font-semibold text-primary">
+              <CardContent className="font-mono text-2xl font-semibold text-primary tabular-nums">
                 {formatVndAmount(overviewQuery.data.kpis.grossProfit)}
               </CardContent>
             </Card>
@@ -114,10 +148,10 @@ export default function DashboardPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="flex flex-col gap-0.5">
-                <span className="font-mono text-2xl font-semibold">
+                <span className="font-mono text-2xl font-semibold tabular-nums">
                   {overviewQuery.data.kpis.invoiceCount} đơn
                 </span>
-                <span className="font-mono text-xs text-muted-foreground">
+                <span className="font-mono text-xs text-muted-foreground tabular-nums">
                   TB: {formatVndAmount(overviewQuery.data.kpis.averageOrderValue)}
                 </span>
               </CardContent>
@@ -130,7 +164,7 @@ export default function DashboardPage() {
                   Tổng hoàn trả
                 </CardTitle>
               </CardHeader>
-              <CardContent className="font-mono text-2xl font-semibold text-destructive">
+              <CardContent className="font-mono text-2xl font-semibold text-destructive tabular-nums">
                 {formatVndAmount(overviewQuery.data.kpis.refundTotal)}
               </CardContent>
             </Card>
@@ -139,8 +173,12 @@ export default function DashboardPage() {
           <div className="grid gap-4 lg:grid-cols-2">
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Top hàng bán chạy (30 ngày)</CardTitle>
-                <CardDescription>Tổng hợp theo doanh số thực bán</CardDescription>
+                <CardTitle className="text-base">
+                  Top hàng bán chạy (30 ngày)
+                </CardTitle>
+                <CardDescription>
+                  Tổng hợp theo doanh số thực bán
+                </CardDescription>
               </CardHeader>
               <CardContent className="flex flex-col gap-2 text-sm">
                 {overviewQuery.data.topProducts.slice(0, 5).map((item) => (
@@ -156,15 +194,21 @@ export default function DashboardPage() {
                         {item.sku} · SL: {Number(item.quantitySold)}
                       </div>
                     </div>
-                    <span className="font-mono font-semibold">
+                    <span className="font-mono font-semibold tabular-nums">
                       {formatVndAmount(item.revenue)}
                     </span>
                   </div>
                 ))}
                 {overviewQuery.data.topProducts.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">
-                    Chưa có giao dịch bán hàng trong khoảng thời gian này.
-                  </p>
+                  <Empty className="py-4">
+                    <EmptyHeader>
+                      <EmptyTitle>Chưa có giao dịch bán hàng</EmptyTitle>
+                      <EmptyDescription>
+                        Bán hàng tại quầy POS để cập nhật thống kê sản phẩm bán
+                        chạy.
+                      </EmptyDescription>
+                    </EmptyHeader>
+                  </Empty>
                 ) : null}
               </CardContent>
               <CardFooter>
@@ -203,7 +247,9 @@ export default function DashboardPage() {
                         {alert.branchName} · Ngưỡng: {alert.minStockAlert}
                       </div>
                     </div>
-                    <Badge variant="destructive">Tồn: {Number(alert.onHand)}</Badge>
+                    <Badge variant="destructive">
+                      Tồn: {Number(alert.onHand)}
+                    </Badge>
                   </div>
                 ))}
                 {overviewQuery.data.lowStockAlerts.length === 0 ? (
@@ -215,6 +261,14 @@ export default function DashboardPage() {
             </Card>
           </div>
         </section>
+      ) : null}
+
+      {canViewInventory && inventoryQuery.isError ? (
+        <QueryErrorAlert
+          title="Không thể tải thông tin tồn kho"
+          error={inventoryQuery.error}
+          onRetry={() => void inventoryQuery.refetch()}
+        />
       ) : null}
 
       {canViewInventory ? (
@@ -229,10 +283,14 @@ export default function DashboardPage() {
                 Hạn mức theo gói {profile.tenant.planCode}
               </CardDescription>
             </CardHeader>
-            <CardContent className="text-2xl font-semibold">
-              {catalogQuery.data
-                ? `${catalogQuery.data.quota.activeSkus} / ${catalogQuery.data.quota.maxSkus}`
-                : "—"}
+            <CardContent className="text-2xl font-semibold tabular-nums">
+              {catalogQuery.isLoading ? (
+                <Skeleton className="h-8 w-28" />
+              ) : catalogQuery.data ? (
+                `${catalogQuery.data.quota.activeSkus} / ${catalogQuery.data.quota.maxSkus}`
+              ) : (
+                "—"
+              )}
             </CardContent>
             <CardFooter>
               <Button
@@ -256,10 +314,14 @@ export default function DashboardPage() {
                 Tính theo giá vốn bình quân gia quyền (AVCO)
               </CardDescription>
             </CardHeader>
-            <CardContent className="font-mono text-2xl font-semibold">
-              {inventoryQuery.data
-                ? formatVndAmount(inventoryQuery.data.summary.totalStockValue)
-                : "0 ₫"}
+            <CardContent className="font-mono text-2xl font-semibold tabular-nums">
+              {inventoryQuery.isLoading ? (
+                <Skeleton className="h-8 w-36" />
+              ) : inventoryQuery.data ? (
+                formatVndAmount(inventoryQuery.data.summary.totalStockValue)
+              ) : (
+                "0 ₫"
+              )}
             </CardContent>
             <CardFooter className="flex gap-2">
               <Button
@@ -290,13 +352,17 @@ export default function DashboardPage() {
                 Cảnh báo tồn tối thiểu
               </CardTitle>
               <CardDescription>
-                Số SKU có tồn kho &le; min_stock_alert
+                Số mặt hàng có tồn kho chạm mức tối thiểu
               </CardDescription>
             </CardHeader>
-            <CardContent className="text-2xl font-semibold">
-              {inventoryQuery.data
-                ? `${inventoryQuery.data.summary.lowStockCount} SKU`
-                : "0 SKU"}
+            <CardContent className="text-2xl font-semibold tabular-nums">
+              {inventoryQuery.isLoading ? (
+                <Skeleton className="h-8 w-24" />
+              ) : inventoryQuery.data ? (
+                `${inventoryQuery.data.summary.lowStockCount} SKU`
+              ) : (
+                "0 SKU"
+              )}
             </CardContent>
             <CardFooter>
               <Button
@@ -349,7 +415,7 @@ export default function DashboardPage() {
                 Quản lý chi nhánh
               </Button>
             ) : (
-              <Badge variant="secondary">Chỉ xem</Badge>
+              <Badge variant="secondary">Quyền chỉ xem</Badge>
             )}
           </CardFooter>
         </Card>
@@ -358,7 +424,7 @@ export default function DashboardPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <UsersIcon className="size-4 text-primary" />
-              Nhân viên &amp; RBAC
+              Nhân viên &amp; Phân quyền
             </CardTitle>
             <CardDescription>
               Cấp mã PIN thu ngân, phân quyền vai trò và giới hạn chi nhánh làm
@@ -383,7 +449,9 @@ export default function DashboardPage() {
                 Quản lý nhân viên
               </Button>
             ) : (
-              <Badge variant="secondary">Không có quyền STAFF_MANAGE</Badge>
+              <Badge variant="secondary">
+                Liên hệ Chủ cửa hàng để phân quyền
+              </Badge>
             )}
           </CardFooter>
         </Card>

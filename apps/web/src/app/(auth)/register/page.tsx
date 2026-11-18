@@ -5,11 +5,12 @@ import {
   type BusinessType,
   registerTenantSchema,
 } from "@smart-pos/shared";
-import { AlertCircleIcon, StoreIcon, UserPlusIcon } from "lucide-react";
+import { AlertCircleIcon, EyeIcon, EyeOffIcon, StoreIcon, UserPlusIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
+import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -54,6 +55,7 @@ export default function RegisterTenantPage() {
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -110,15 +112,18 @@ export default function RegisterTenantPage() {
           <StoreIcon className="size-4 text-primary" />
           Smart-POS
         </Link>
-        <Badge variant="secondary">Dùng thử 14 ngày miễn phí</Badge>
+        <div className="flex items-center gap-1.5">
+          <Badge variant="secondary">Dùng thử 14 ngày miễn phí</Badge>
+          <ThemeToggle />
+        </div>
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle>Đăng ký mở cửa hàng mới</CardTitle>
           <CardDescription>
-            Tự động khởi tạo Tenant, chi nhánh mặc định CN01 và tài khoản Chủ cửa
-            hàng trong một giao dịch.
+            Tự động thiết lập gian hàng, chi nhánh đầu tiên và tài khoản Chủ cửa
+            hàng trong vài giây.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -263,14 +268,27 @@ export default function RegisterTenantPage() {
 
                 <Field data-invalid={Boolean(fieldErrors.password)}>
                   <FieldLabel htmlFor="owner-password">Mật khẩu</FieldLabel>
-                  <Input
-                    id="owner-password"
-                    type="password"
-                    placeholder="Ít nhất 8 ký tự"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    aria-invalid={Boolean(fieldErrors.password)}
-                  />
+                  <div className="flex items-center gap-1.5">
+                    <Input
+                      id="owner-password"
+                      type={showPassword ? "text" : "password"}
+                      placeholder="Ít nhất 8 ký tự"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      aria-invalid={Boolean(fieldErrors.password)}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      aria-label={
+                        showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"
+                      }
+                      onClick={() => setShowPassword((prev) => !prev)}
+                    >
+                      {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+                    </Button>
+                  </div>
                   {fieldErrors.password ? (
                     <FieldError>{fieldErrors.password}</FieldError>
                   ) : null}

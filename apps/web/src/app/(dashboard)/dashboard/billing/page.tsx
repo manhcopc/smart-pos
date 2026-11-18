@@ -14,6 +14,10 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import {
+  CardGridSkeleton,
+  QueryErrorAlert,
+} from "@/components/shared/page-states";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,6 +29,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import {
   Select,
@@ -34,6 +45,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { useMe } from "@/hooks/use-auth";
 import { useBillingOverview, useSubscribePlan } from "@/hooks/use-billing";
 import { formatApiError } from "@/lib/api-client";
@@ -54,7 +73,7 @@ function QuotaMeter({
     <Card>
       <CardHeader className="pb-2">
         <CardDescription>{label}</CardDescription>
-        <CardTitle className="font-mono text-2xl">
+        <CardTitle className="font-mono text-2xl tabular-nums">
           {used} / {max}
         </CardTitle>
       </CardHeader>
@@ -67,7 +86,9 @@ function QuotaMeter({
             style={{ width: `${pct}%` }}
           />
         </div>
-        <p className="mt-1.5 text-xs text-muted-foreground">Đã sử dụng {pct}% hạn mức</p>
+        <p className="mt-1.5 text-xs text-muted-foreground">
+          Đã sử dụng {pct}% hạn mức
+        </p>
       </CardContent>
     </Card>
   );
@@ -121,10 +142,11 @@ export default function BillingPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">
-            Gói SaaS & Hạn mức hệ thống
+            Gói SaaS &amp; Hạn mức hệ thống
           </h1>
           <p className="text-sm text-muted-foreground">
-            Quản lý thời hạn dùng thử, theo dõi quota chi nhánh / nhân viên / SKU và nâng cấp gói Lite hoặc Pro.
+            Quản lý thời hạn dùng thử, theo dõi quota chi nhánh / nhân viên /
+            SKU và nâng cấp gói Lite hoặc Pro.
           </p>
         </div>
         {data ? (
@@ -138,9 +160,10 @@ export default function BillingPage() {
       {data?.tenant.isTrialExpired ? (
         <Alert variant="destructive">
           <AlertTriangleIcon />
-          <AlertTitle>Thời gian dùng thử 30 ngày đã kết thúc</AlertTitle>
+          <AlertTitle>Thời gian dùng thử miễn phí đã kết thúc</AlertTitle>
           <AlertDescription>
-            Vui lòng nâng cấp lên gói Lite hoặc Pro để tiếp tục vận hành không gián đoạn.
+            Vui lòng nâng cấp lên gói Lite hoặc Pro để tiếp tục vận hành không
+            gián đoạn.
           </AlertDescription>
         </Alert>
       ) : data?.currentPlan.code === "FREE_TRIAL" &&
@@ -151,7 +174,8 @@ export default function BillingPage() {
             Đang dùng thử miễn phí (còn {data.tenant.daysRemaining} ngày)
           </AlertTitle>
           <AlertDescription>
-            Bạn có thể gia hạn thử nghiệm hoặc chọn gói trả phí Lite / Pro bất cứ lúc nào.
+            Bạn có thể gia hạn thử nghiệm hoặc chọn gói trả phí Lite / Pro bất
+            cứ lúc nào.
           </AlertDescription>
         </Alert>
       ) : null}
@@ -164,7 +188,17 @@ export default function BillingPage() {
         </Alert>
       ) : null}
 
-      {data ? (
+      {overviewQuery.isError ? (
+        <QueryErrorAlert
+          title="Không tải được thông tin gói dịch vụ"
+          error={overviewQuery.error}
+          onRetry={() => void overviewQuery.refetch()}
+        />
+      ) : null}
+
+      {overviewQuery.isLoading ? (
+        <CardGridSkeleton count={3} columnsClass="grid gap-4 md:grid-cols-3" />
+      ) : data ? (
         <>
           <div className="grid gap-4 md:grid-cols-3">
             <QuotaMeter
@@ -186,18 +220,24 @@ export default function BillingPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Chọn gói & Chu kỳ thanh toán</CardTitle>
+              <CardTitle>Chọn gói &amp; Chu kỳ thanh toán</CardTitle>
               <CardDescription>
-                Hệ thống tự động kiểm tra an toàn khi hạ gói: không cho phép chuyển xuống gói có hạn mức nhỏ hơn số lượng đang sử dụng.
+                Hệ thống tự động kiểm tra an toàn khi hạ gói: không cho phép
+                chuyển xuống gói có hạn mức nhỏ hơn số lượng đang sử dụng.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-5">
               <FieldGroup className="grid gap-4 sm:max-w-lg sm:grid-cols-2">
                 <Field>
-                  <FieldLabel htmlFor="billing-months">Chu kỳ thanh toán</FieldLabel>
-                  <Select value={billingMonths} onValueChange={(v) => v && setBillingMonths(v)}>
+                  <FieldLabel htmlFor="billing-months">
+                    Chu kỳ thanh toán
+                  </FieldLabel>
+                  <Select
+                    value={billingMonths}
+                    onValueChange={(v) => v && setBillingMonths(v)}
+                  >
                     <SelectTrigger id="billing-months">
-                      <SelectValue />
+                      <SelectValue>{billingMonths} tháng</SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>
@@ -211,7 +251,9 @@ export default function BillingPage() {
                 </Field>
 
                 <Field>
-                  <FieldLabel htmlFor="billing-provider">Phương thức thanh toán</FieldLabel>
+                  <FieldLabel htmlFor="billing-provider">
+                    Phương thức thanh toán
+                  </FieldLabel>
                   <Select
                     value={provider}
                     onValueChange={(v) =>
@@ -223,7 +265,9 @@ export default function BillingPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>
-                        <SelectItem value="INTERNAL_QR">Chuyển khoản VietQR</SelectItem>
+                        <SelectItem value="INTERNAL_QR">
+                          Chuyển khoản VietQR
+                        </SelectItem>
                         <SelectItem value="VNPAY">Cổng VNPay</SelectItem>
                         <SelectItem value="MOMO">Ví MoMo</SelectItem>
                       </SelectGroup>
@@ -239,7 +283,9 @@ export default function BillingPage() {
                   return (
                     <Card
                       key={plan.id}
-                      className={isCurrent ? "border-primary ring-1 ring-primary" : ""}
+                      className={
+                        isCurrent ? "border-primary ring-1 ring-primary" : ""
+                      }
                     >
                       <CardHeader>
                         <div className="flex items-center justify-between">
@@ -248,20 +294,22 @@ export default function BillingPage() {
                             <Badge variant="default">Đang sử dụng</Badge>
                           ) : null}
                         </div>
-                        <CardDescription className="font-mono text-lg font-semibold text-foreground">
+                        <CardDescription className="font-mono text-lg font-semibold text-foreground tabular-nums">
                           {monthlyNum === 0
-                            ? "Miễn phí (30 ngày)"
+                            ? "Miễn phí (14 ngày đầu)"
                             : `${formatVndAmount(plan.priceMonthly)} / tháng`}
                         </CardDescription>
                       </CardHeader>
                       <CardContent className="flex flex-col gap-2 text-xs">
                         <div className="flex items-center gap-1.5">
                           <CheckCircle2Icon className="size-3.5 text-primary" />
-                          Tối đa {plan.maxBranches} chi nhánh · {plan.maxUsers} nhân viên
+                          Tối đa {plan.maxBranches} chi nhánh · {plan.maxUsers}{" "}
+                          nhân viên
                         </div>
                         <div className="flex items-center gap-1.5">
                           <CheckCircle2Icon className="size-3.5 text-primary" />
-                          Tối đa {plan.maxSkus.toLocaleString("vi-VN")} SKU · Lưu trữ {plan.storageQuotaMb} MB
+                          Tối đa {plan.maxSkus.toLocaleString("vi-VN")} SKU · Lưu
+                          trữ {plan.storageQuotaMb} MB
                         </div>
                         <div className="flex flex-wrap gap-1 pt-2">
                           {plan.features.posOffline ? (
@@ -274,7 +322,9 @@ export default function BillingPage() {
                             <Badge variant="outline">Chuyển kho</Badge>
                           ) : null}
                           {plan.features.omnichannelApi ? (
-                            <Badge variant="secondary">API & Webhook TMĐT</Badge>
+                            <Badge variant="secondary">
+                              API &amp; Webhook TMĐT
+                            </Badge>
                           ) : null}
                         </div>
                       </CardContent>
@@ -282,12 +332,14 @@ export default function BillingPage() {
                         <Button
                           className="w-full"
                           variant={isCurrent ? "outline" : "default"}
-                          disabled={!canManageBilling || subscribeMutation.isPending}
+                          disabled={
+                            !canManageBilling || subscribeMutation.isPending
+                          }
                           onClick={() => void handleSelectPlan(plan)}
                         >
                           <CreditCardIcon data-icon="inline-start" />
                           {plan.code === "FREE_TRIAL"
-                            ? "Gia hạn Dùng thử 30 ngày"
+                            ? "Gia hạn Dùng thử thêm 30 ngày"
                             : isCurrent
                               ? `Gia hạn thêm ${billingMonths} tháng`
                               : `Chuyển sang ${plan.name}`}
@@ -299,7 +351,8 @@ export default function BillingPage() {
               </div>
               {!canManageBilling ? (
                 <p className="text-xs text-muted-foreground">
-                  Chỉ Chủ cửa hàng (Owner) mới có quyền thực hiện nâng cấp hoặc thanh toán gói SaaS.
+                  Chỉ Chủ cửa hàng (Owner) mới có quyền thực hiện nâng cấp hoặc
+                  thanh toán gói SaaS.
                 </p>
               ) : null}
             </CardContent>
@@ -311,64 +364,74 @@ export default function BillingPage() {
             </CardHeader>
             <CardContent>
               {data.billingHistory.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  Chưa có hóa đơn đăng ký hoặc nâng cấp gói nào.
-                </p>
+                <Empty className="py-4">
+                  <EmptyHeader>
+                    <EmptyMedia variant="icon">
+                      <CreditCardIcon />
+                    </EmptyMedia>
+                    <EmptyTitle>Chưa có hóa đơn đăng ký gói nào</EmptyTitle>
+                    <EmptyDescription>
+                      Lịch sử thanh toán khi nâng cấp hoặc gia hạn gói SaaS sẽ
+                      hiển thị tại đây.
+                    </EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm">
-                    <thead>
-                      <tr className="border-b text-xs text-muted-foreground">
-                        <th className="py-2 pr-3">Mã tham chiếu</th>
-                        <th className="py-2 pr-3">Gói</th>
-                        <th className="py-2 pr-3">Chu kỳ</th>
-                        <th className="py-2 pr-3">Số tiền</th>
-                        <th className="py-2 pr-3">Cổng TT</th>
-                        <th className="py-2 pr-3">Trạng thái</th>
-                        <th className="py-2">Hạn sử dụng</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.billingHistory.map((row) => (
-                        <tr key={row.id} className="border-b last:border-0">
-                          <td className="py-2 pr-3 font-mono text-xs">
-                            {row.referenceNo ?? row.id.slice(0, 8)}
-                          </td>
-                          <td className="py-2 pr-3 font-medium">{row.planCode}</td>
-                          <td className="py-2 pr-3">{row.billingMonths} tháng</td>
-                          <td className="py-2 pr-3 font-mono">
-                            {formatVndAmount(row.amount)}
-                          </td>
-                          <td className="py-2 pr-3 text-xs">{row.provider}</td>
-                          <td className="py-2 pr-3">
-                            <Badge
-                              variant={
-                                row.status === "PAID"
-                                  ? "secondary"
-                                  : row.status === "FAILED"
-                                    ? "destructive"
-                                    : "outline"
-                              }
-                            >
-                              {BILLING_STATUS_LABELS[row.status]}
-                            </Badge>
-                          </td>
-                          <td className="py-2 text-xs text-muted-foreground">
-                            {new Date(row.periodStart).toLocaleDateString("vi-VN")} →{" "}
-                            {new Date(row.periodEnd).toLocaleDateString("vi-VN")}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <Table>
+                  <TableHeader>
+                    <TableRow className="text-xs text-muted-foreground">
+                      <TableHead>Mã tham chiếu</TableHead>
+                      <TableHead>Gói</TableHead>
+                      <TableHead>Chu kỳ</TableHead>
+                      <TableHead>Số tiền</TableHead>
+                      <TableHead>Cổng TT</TableHead>
+                      <TableHead>Trạng thái</TableHead>
+                      <TableHead>Hạn sử dụng</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {data.billingHistory.map((row) => (
+                      <TableRow key={row.id}>
+                        <TableCell className="font-mono text-xs">
+                          {row.referenceNo ?? row.id.slice(0, 8)}
+                        </TableCell>
+                        <TableCell className="font-medium">
+                          {row.planCode}
+                        </TableCell>
+                        <TableCell>{row.billingMonths} tháng</TableCell>
+                        <TableCell className="font-mono tabular-nums">
+                          {formatVndAmount(row.amount)}
+                        </TableCell>
+                        <TableCell className="text-xs">{row.provider}</TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={
+                              row.status === "PAID"
+                                ? "secondary"
+                                : row.status === "FAILED"
+                                  ? "destructive"
+                                  : "outline"
+                            }
+                          >
+                            {BILLING_STATUS_LABELS[row.status]}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {new Date(row.periodStart).toLocaleDateString(
+                            "vi-VN",
+                          )}{" "}
+                          →{" "}
+                          {new Date(row.periodEnd).toLocaleDateString("vi-VN")}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               )}
             </CardContent>
           </Card>
         </>
-      ) : (
-        <p className="text-sm text-muted-foreground">Đang tải thông tin gói SaaS...</p>
-      )}
+      ) : null}
     </div>
   );
 }

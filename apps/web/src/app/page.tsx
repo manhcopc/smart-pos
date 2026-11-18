@@ -9,6 +9,7 @@ import {
   StoreIcon,
 } from "lucide-react";
 import Link from "next/link";
+import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -50,7 +51,10 @@ export default function HomePage() {
             <StoreIcon className="size-6 text-primary" />
             <h1 className="text-2xl font-semibold tracking-tight">Smart-POS</h1>
           </div>
-          {apiBadge}
+          <div className="flex items-center gap-2">
+            {apiBadge}
+            <ThemeToggle />
+          </div>
         </div>
         <p className="max-w-2xl text-sm text-muted-foreground">
           Nền tảng SaaS bán hàng &amp; quản lý kho đa chi nhánh. Tách biệt hai

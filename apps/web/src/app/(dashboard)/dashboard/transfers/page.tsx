@@ -2,6 +2,7 @@
 
 import {
   createStockTransferSchema,
+  PERMISSIONS,
   type StockTransferItemView,
 } from "@smart-pos/shared";
 import {
@@ -9,10 +10,16 @@ import {
   ArrowLeftRightIcon,
   CheckIcon,
   PlusIcon,
+  Trash2Icon,
   XIcon,
 } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
+import { DataPagination } from "@/components/shared/data-pagination";
+import {
+  CardGridSkeleton,
+  QueryErrorAlert,
+} from "@/components/shared/page-states";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -31,6 +38,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
@@ -59,7 +74,15 @@ interface TransferDraftLine {
 
 export default function StockTransfersPage() {
   const { data: profile } = useMe();
-  const transfersQuery = useStockTransfers({ limit: 30 }, Boolean(profile));
+  const canTransfer =
+    profile?.member.permissions.includes(PERMISSIONS.INVENTORY_TRANSFER) ??
+    false;
+
+  const [page, setPage] = useState(1);
+  const transfersQuery = useStockTransfers(
+    { page, limit: 20 },
+    Boolean(profile),
+  );
   const productsQuery = useProducts({ page: 1, limit: 50 }, Boolean(profile));
 
   const dispatchMutation = useDispatchStockTransfer();
@@ -113,7 +136,7 @@ export default function StockTransfersPage() {
 
     try {
       const created = await dispatchMutation.mutateAsync(parsed.data);
-      toast.success(`Đã xuất phiếu chuyển kho ${created.code} (IN_TRANSIT)`);
+      toast.success(`Đã xuất phiếu chuyển kho ${created.code}`);
       setCreateOpen(false);
     } catch (error) {
       setFormError(formatApiError(error, "Không thể tạo phiếu chuyển kho."));
@@ -123,7 +146,9 @@ export default function StockTransfersPage() {
   async function handleReceive(transfer: StockTransferItemView) {
     try {
       await receiveMutation.mutateAsync({ transferId: transfer.id, data: {} });
-      toast.success(`Đã nhận hàng phiếu ${transfer.code} và cập nhật giá vốn AVCO`);
+      toast.success(
+        `Đã nhận hàng phiếu ${transfer.code} và cập nhật giá vốn AVCO`,
+      );
     } catch (error) {
       toast.error(formatApiError(error, "Không thể xác nhận nhận kho."));
     }
@@ -132,11 +157,16 @@ export default function StockTransfersPage() {
   async function handleCancel(transfer: StockTransferItemView) {
     try {
       await cancelMutation.mutateAsync(transfer.id);
-      toast.success(`Đã hủy phiếu ${transfer.code} và hoàn tồn về chi nhánh xuất`);
+      toast.success(
+        `Đã hủy phiếu ${transfer.code} và hoàn tồn về chi nhánh xuất`,
+      );
     } catch (error) {
       toast.error(formatApiError(error, "Không thể hủy phiếu chuyển kho."));
     }
   }
+
+  const transfers = transfersQuery.data?.items ?? [];
+  const pagination = transfersQuery.data?.pagination;
 
   return (
     <div className="flex flex-col gap-6">
@@ -146,20 +176,32 @@ export default function StockTransfersPage() {
             Điều chuyển kho Liên chi nhánh
           </h1>
           <p className="text-sm text-muted-foreground">
-            Xuất kho chi nhánh nguồn (IN_TRANSIT) &rarr; Xác nhận nhập kho chi
-            nhánh đích kèm giá vốn bình quân gia quyền (AVCO).
+            Xuất kho chi nhánh nguồn &rarr; Xác nhận nhập kho chi nhánh đích kèm
+            giá vốn bình quân gia quyền (AVCO).
           </p>
         </div>
 
-        <Button
-          type="button"
-          disabled={branches.length < 2}
-          onClick={openNewTransferModal}
-        >
-          <PlusIcon data-icon="inline-start" />
-          Tạo phiếu chuyển kho
-        </Button>
+        {canTransfer ? (
+          <Button
+            type="button"
+            disabled={branches.length < 2}
+            onClick={openNewTransferModal}
+          >
+            <PlusIcon data-icon="inline-start" />
+            Tạo phiếu chuyển kho
+          </Button>
+        ) : null}
       </header>
+
+      {!canTransfer && profile ? (
+        <Alert>
+          <AlertCircleIcon />
+          <AlertTitle>Chế độ chỉ xem</AlertTitle>
+          <AlertDescription>
+            Bạn không có quyền điều chuyển kho giữa các chi nhánh.
+          </AlertDescription>
+        </Alert>
+      ) : null}
 
       {branches.length < 2 ? (
         <Alert>
@@ -172,93 +214,129 @@ export default function StockTransfersPage() {
         </Alert>
       ) : null}
 
-      <div className="flex flex-col gap-3">
-        {(transfersQuery.data?.items ?? []).map((tr) => (
-          <Card key={tr.id}>
-            <CardHeader className="pb-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <ArrowLeftRightIcon className="size-4 text-primary" />
-                  <CardTitle className="font-mono text-base">{tr.code}</CardTitle>
-                  <Badge
-                    variant={
-                      tr.status === "RECEIVED"
-                        ? "default"
-                        : tr.status === "CANCELLED"
-                          ? "destructive"
-                          : "secondary"
-                    }
-                  >
-                    {STOCK_TRANSFER_STATUS_LABELS[tr.status]}
-                  </Badge>
-                </div>
+      {transfersQuery.isError ? (
+        <QueryErrorAlert
+          title="Không tải được danh sách phiếu chuyển kho"
+          error={transfersQuery.error}
+          onRetry={() => void transfersQuery.refetch()}
+        />
+      ) : null}
 
-                {tr.status === "IN_TRANSIT" ? (
-                  <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={receiveMutation.isPending}
-                      onClick={() => void handleReceive(tr)}
-                    >
-                      <CheckIcon data-icon="inline-start" />
-                      Nhận hàng tại {tr.toBranchName}
+      <div className="flex flex-col gap-3">
+        {transfersQuery.isLoading ? (
+          <CardGridSkeleton count={3} columnsClass="flex flex-col gap-3" />
+        ) : transfers.length === 0 ? (
+          <Card>
+            <CardContent className="pt-4">
+              <Empty>
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <ArrowLeftRightIcon />
+                  </EmptyMedia>
+                  <EmptyTitle>Chưa có phiếu chuyển kho nào</EmptyTitle>
+                  <EmptyDescription>
+                    Bấm &ldquo;Tạo phiếu chuyển kho&rdquo; để luân chuyển hàng
+                    giữa các chi nhánh.
+                  </EmptyDescription>
+                </EmptyHeader>
+                {canTransfer && branches.length >= 2 ? (
+                  <EmptyContent>
+                    <Button type="button" onClick={openNewTransferModal}>
+                      <PlusIcon data-icon="inline-start" />
+                      Tạo phiếu chuyển kho
                     </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={cancelMutation.isPending}
-                      onClick={() => void handleCancel(tr)}
-                    >
-                      <XIcon data-icon="inline-start" />
-                      Hủy phiếu
-                    </Button>
-                  </div>
+                  </EmptyContent>
                 ) : null}
-              </div>
-              <CardDescription>
-                {tr.fromBranchName} &rarr; {tr.toBranchName} · Tạo bởi:{" "}
-                {tr.createdByName}
-                {tr.receivedByName ? ` · Nhận bởi: ${tr.receivedByName}` : ""}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-1.5 text-sm">
-              {tr.items.map((item) => (
-                <div
-                  key={item.id}
-                  className="flex items-center justify-between border-b py-1 last:border-none"
-                >
-                  <span>
-                    <strong className="font-mono">{item.sku}</strong> ·{" "}
-                    {item.productName} ({item.variantName})
-                  </span>
-                  <span className="font-mono">
-                    {Number(item.quantity)} {item.unit}
-                  </span>
-                </div>
-              ))}
-              {tr.note ? (
-                <p className="pt-1 text-xs text-muted-foreground">
-                  Ghi chú: {tr.note}
-                </p>
-              ) : null}
+              </Empty>
             </CardContent>
           </Card>
-        ))}
+        ) : (
+          transfers.map((tr) => (
+            <Card key={tr.id}>
+              <CardHeader className="pb-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <ArrowLeftRightIcon className="size-4 text-primary" />
+                    <CardTitle className="font-mono text-base">
+                      {tr.code}
+                    </CardTitle>
+                    <Badge
+                      variant={
+                        tr.status === "RECEIVED"
+                          ? "default"
+                          : tr.status === "CANCELLED"
+                            ? "destructive"
+                            : "secondary"
+                      }
+                    >
+                      {STOCK_TRANSFER_STATUS_LABELS[tr.status]}
+                    </Badge>
+                  </div>
 
-        {(transfersQuery.data?.items ?? []).length === 0 ? (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">
-                Chưa có phiếu chuyển kho nào
-              </CardTitle>
-              <CardDescription>
-                Bấm &ldquo;Tạo phiếu chuyển kho&rdquo; để luân chuyển hàng giữa
-                các chi nhánh.
-              </CardDescription>
-            </CardHeader>
-          </Card>
+                  {canTransfer && tr.status === "IN_TRANSIT" ? (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={receiveMutation.isPending}
+                        onClick={() => void handleReceive(tr)}
+                      >
+                        <CheckIcon data-icon="inline-start" />
+                        Nhận hàng tại {tr.toBranchName}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={cancelMutation.isPending}
+                        onClick={() => void handleCancel(tr)}
+                      >
+                        <XIcon data-icon="inline-start" />
+                        Hủy phiếu
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+                <CardDescription>
+                  {tr.fromBranchName} &rarr; {tr.toBranchName} · Tạo bởi:{" "}
+                  {tr.createdByName}
+                  {tr.receivedByName
+                    ? ` · Nhận bởi: ${tr.receivedByName}`
+                    : ""}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-1.5 text-sm">
+                {tr.items.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex items-center justify-between border-b py-1 last:border-none"
+                  >
+                    <span>
+                      <strong className="font-mono">{item.sku}</strong> ·{" "}
+                      {item.productName} ({item.variantName})
+                    </span>
+                    <span className="font-mono tabular-nums">
+                      {Number(item.quantity)} {item.unit}
+                    </span>
+                  </div>
+                ))}
+                {tr.note ? (
+                  <p className="pt-1 text-xs text-muted-foreground">
+                    Ghi chú: {tr.note}
+                  </p>
+                ) : null}
+              </CardContent>
+            </Card>
+          ))
+        )}
+
+        {pagination ? (
+          <DataPagination
+            page={page}
+            totalPages={pagination.totalPages}
+            totalItems={pagination.total}
+            onPageChange={setPage}
+          />
         ) : null}
       </div>
 
@@ -268,7 +346,7 @@ export default function StockTransfersPage() {
             <DialogTitle>Tạo phiếu điều chuyển kho</DialogTitle>
             <DialogDescription>
               Hàng hóa sẽ bị trừ ngay ở chi nhánh xuất và chuyển sang trạng thái
-              vận chuyển (IN_TRANSIT).
+              đang vận chuyển.
             </DialogDescription>
           </DialogHeader>
 
@@ -289,7 +367,7 @@ export default function StockTransfersPage() {
                     if (v) setFromBranchId(v);
                   }}
                 >
-                  <SelectTrigger id="tr-from">
+                  <SelectTrigger id="tr-from" className="w-full">
                     <SelectValue>
                       {branches.find((b) => b.id === fromBranchId)?.name ??
                         "Chọn chi nhánh"}
@@ -315,7 +393,7 @@ export default function StockTransfersPage() {
                     if (v) setToBranchId(v);
                   }}
                 >
-                  <SelectTrigger id="tr-to">
+                  <SelectTrigger id="tr-to" className="w-full">
                     <SelectValue>
                       {branches.find((b) => b.id === toBranchId)?.name ??
                         "Chọn chi nhánh"}
@@ -383,7 +461,7 @@ export default function StockTransfersPage() {
                   </Select>
                   <Input
                     aria-label={`SL chuyển dòng ${idx + 1}`}
-                    className="w-24 font-mono text-right"
+                    className="w-24 text-right font-mono"
                     value={line.quantity}
                     onChange={(e) =>
                       setLines((prev) =>
@@ -400,11 +478,12 @@ export default function StockTransfersPage() {
                       type="button"
                       size="icon-sm"
                       variant="ghost"
+                      aria-label={`Xóa dòng chuyển kho ${idx + 1}`}
                       onClick={() =>
                         setLines((prev) => prev.filter((_, i) => i !== idx))
                       }
                     >
-                      <XIcon />
+                      <Trash2Icon className="text-destructive" />
                     </Button>
                   ) : null}
                 </div>

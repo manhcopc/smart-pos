@@ -3,15 +3,25 @@
 import { AUDIT_ACTIONS, type AuditActionType } from "@smart-pos/shared";
 import { ScrollTextIcon } from "lucide-react";
 import { useState } from "react";
+import { DataPagination } from "@/components/shared/data-pagination";
+import {
+  CardGridSkeleton,
+  QueryErrorAlert,
+} from "@/components/shared/page-states";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
-  CardTitle,
 } from "@/components/ui/card";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
@@ -34,12 +44,41 @@ const DESTRUCTIVE_ACTIONS = new Set<AuditActionType>([
   "DISCOUNT_OVERRIDE",
 ]);
 
+const METADATA_KEY_LABELS: Record<string, string> = {
+  invoiceCode: "Mã hóa đơn",
+  reason: "Lý do",
+  shiftId: "Ca làm việc",
+  amount: "Số tiền",
+  variance: "Chênh lệch",
+  sku: "Mã SKU",
+  pointsDelta: "Thay đổi điểm",
+  planCode: "Gói dịch vụ",
+  transferCode: "Mã chuyển kho",
+  branchCode: "Mã chi nhánh",
+};
+
+function formatMetadataEntries(
+  metadata: Record<string, unknown> | null | undefined,
+): Array<{ label: string; value: string }> {
+  if (!metadata || typeof metadata !== "object") return [];
+  return Object.entries(metadata).map(([key, val]) => ({
+    label: METADATA_KEY_LABELS[key] ?? key,
+    value:
+      typeof val === "string" || typeof val === "number" || typeof val === "boolean"
+        ? String(val)
+        : JSON.stringify(val),
+  }));
+}
+
 export default function AuditLogsPage() {
   const { data: profile } = useMe();
   const [branchId, setBranchId] = useState("ALL");
   const [action, setAction] = useState<string>("ALL");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+  const [expandedJsonIds, setExpandedJsonIds] = useState<
+    Record<string, boolean>
+  >({});
 
   const logsQuery = useAuditLogs(
     {
@@ -59,7 +98,7 @@ export default function AuditLogsPage() {
     <div className="flex flex-col gap-6">
       <header>
         <h1 className="text-xl font-semibold">
-          Nhật ký Kiểm toán &amp; Thao tác Nhạy cảm (Audit Logs)
+          Nhật ký Kiểm toán &amp; Thao tác Nhạy cảm
         </h1>
         <p className="text-sm text-muted-foreground">
           Ghi nhận bất biến các hành động sửa giá, chiết khấu, hủy hóa đơn, hoàn
@@ -147,81 +186,124 @@ export default function AuditLogsPage() {
         </CardContent>
       </Card>
 
+      {logsQuery.isError ? (
+        <QueryErrorAlert
+          title="Không tải được nhật ký kiểm toán"
+          error={logsQuery.error}
+          onRetry={() => void logsQuery.refetch()}
+        />
+      ) : null}
+
       <div className="flex flex-col gap-2.5">
-        {items.map((log) => (
-          <Card key={log.id}>
-            <CardHeader className="pb-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <ScrollTextIcon className="size-4 text-primary" />
-                  <Badge
-                    variant={
-                      DESTRUCTIVE_ACTIONS.has(log.action)
-                        ? "destructive"
-                        : "secondary"
-                    }
-                  >
-                    {AUDIT_ACTION_LABELS[log.action] ?? log.action}
-                  </Badge>
-                  <span className="text-sm font-medium">
-                    {log.actorName} ({log.actorEmployeeCode})
-                  </span>
-                </div>
-                <span className="font-mono text-xs text-muted-foreground">
-                  {new Date(log.createdAt).toLocaleString("vi-VN")}
-                </span>
-              </div>
-              <CardDescription>
-                {log.branchName ? `Chi nhánh: ${log.branchName} · ` : ""}
-                Đối tượng: <span className="font-mono">{log.entityType}</span> (
-                <span className="font-mono">{log.entityId}</span>)
-                {log.ipAddress ? ` · IP: ${log.ipAddress}` : ""}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <pre className="overflow-x-auto rounded bg-muted/40 p-2 font-mono text-xs text-muted-foreground">
-                {JSON.stringify(log.metadata, null, 2)}
-              </pre>
+        {logsQuery.isLoading ? (
+          <CardGridSkeleton count={3} columnsClass="flex flex-col gap-2.5" />
+        ) : items.length === 0 ? (
+          <Card>
+            <CardContent className="pt-4">
+              <Empty>
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <ScrollTextIcon />
+                  </EmptyMedia>
+                  <EmptyTitle>Chưa có bản ghi phù hợp</EmptyTitle>
+                  <EmptyDescription>
+                    Thử bỏ bộ lọc hoặc thực hiện giao dịch trên POS để sinh nhật
+                    ký.
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
             </CardContent>
           </Card>
-        ))}
-
-        {items.length === 0 ? (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Chưa có bản ghi phù hợp</CardTitle>
-              <CardDescription>
-                Thử bỏ bộ lọc hoặc thực hiện giao dịch trên POS để sinh log.
-              </CardDescription>
-            </CardHeader>
-          </Card>
-        ) : null}
+        ) : (
+          items.map((log) => {
+            const entries = formatMetadataEntries(
+              log.metadata as Record<string, unknown> | null | undefined,
+            );
+            return (
+              <Card key={log.id}>
+                <CardHeader className="pb-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <ScrollTextIcon className="size-4 text-primary" />
+                      <Badge
+                        variant={
+                          DESTRUCTIVE_ACTIONS.has(log.action)
+                            ? "destructive"
+                            : "secondary"
+                        }
+                      >
+                        {AUDIT_ACTION_LABELS[log.action] ?? log.action}
+                      </Badge>
+                      <span className="text-sm font-medium">
+                        {log.actorName} ({log.actorEmployeeCode})
+                      </span>
+                    </div>
+                    <span className="font-mono text-xs text-muted-foreground">
+                      {new Date(log.createdAt).toLocaleString("vi-VN")}
+                    </span>
+                  </div>
+                  <CardDescription>
+                    {log.branchName ? `Chi nhánh: ${log.branchName} · ` : ""}
+                    Đối tượng:{" "}
+                    <span className="font-mono">{log.entityType}</span> (
+                    <span className="font-mono">{log.entityId}</span>)
+                    {log.ipAddress ? ` · IP: ${log.ipAddress}` : ""}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-2">
+                  {entries.length > 0 ? (
+                    <div className="grid gap-1.5 rounded-md border bg-muted/30 p-2.5 text-xs sm:grid-cols-2">
+                      {entries.map((entry) => (
+                        <div
+                          key={entry.label}
+                          className="flex items-baseline justify-between gap-2"
+                        >
+                          <span className="text-muted-foreground">
+                            {entry.label}:
+                          </span>
+                          <span className="font-mono font-medium text-foreground">
+                            {entry.value}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                  <div>
+                    <button
+                      type="button"
+                      className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                      aria-expanded={Boolean(expandedJsonIds[log.id])}
+                      onClick={() =>
+                        setExpandedJsonIds((prev) => ({
+                          ...prev,
+                          [log.id]: !prev[log.id],
+                        }))
+                      }
+                    >
+                      {expandedJsonIds[log.id]
+                        ? "Ẩn chi tiết kỹ thuật (JSON)"
+                        : "Xem chi tiết kỹ thuật (JSON)"}
+                    </button>
+                    {expandedJsonIds[log.id] ? (
+                      <pre className="mt-1.5 overflow-x-auto rounded bg-muted/40 p-2 font-mono text-xs">
+                        {JSON.stringify(log.metadata, null, 2)}
+                      </pre>
+                    ) : null}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })
+        )}
       </div>
 
-      {pagination && pagination.totalPages > 1 ? (
-        <div className="flex items-center justify-end gap-2">
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={page <= 1}
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-          >
-            Trang trước
-          </Button>
-          <span className="text-xs text-muted-foreground">
-            Trang {page} / {pagination.totalPages}
-          </span>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={page >= pagination.totalPages}
-            onClick={() => setPage((p) => p + 1)}
-          >
-            Trang sau
-          </Button>
-        </div>
+      {pagination ? (
+        <DataPagination
+          page={page}
+          totalPages={pagination.totalPages}
+          totalItems={pagination.total}
+          onPageChange={setPage}
+        />
       ) : null}
     </div>
   );

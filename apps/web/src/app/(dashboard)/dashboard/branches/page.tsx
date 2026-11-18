@@ -14,6 +14,10 @@ import {
 } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
+import {
+  CardGridSkeleton,
+  QueryErrorAlert,
+} from "@/components/shared/page-states";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,6 +28,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -33,6 +38,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import {
   Field,
   FieldDescription,
   FieldError,
@@ -40,6 +53,7 @@ import {
   FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { useMe } from "@/hooks/use-auth";
 import {
   useBranches,
@@ -190,70 +204,96 @@ export default function BranchesPage() {
         </div>
       </header>
 
-      {!canManage ? (
+      {!canManage && profile ? (
         <Alert>
           <AlertCircleIcon />
           <AlertTitle>Chế độ chỉ xem</AlertTitle>
           <AlertDescription>
-            Bạn cần quyền <code>branch:manage</code> để thêm hoặc chỉnh sửa chi
-            nhánh.
+            Bạn không có quyền thêm hoặc chỉnh sửa chi nhánh.
           </AlertDescription>
         </Alert>
       ) : null}
 
       {branchesQuery.isError ? (
-        <Alert variant="destructive">
-          <AlertCircleIcon />
-          <AlertTitle>Không tải được danh sách chi nhánh</AlertTitle>
-          <AlertDescription>
-            {formatApiError(branchesQuery.error)}
-          </AlertDescription>
-        </Alert>
+        <QueryErrorAlert
+          title="Không tải được danh sách chi nhánh"
+          error={branchesQuery.error}
+          onRetry={() => void branchesQuery.refetch()}
+        />
       ) : null}
 
-      <div className="grid gap-4 md:grid-cols-2">
-        {branches.map((branch) => (
-          <Card key={branch.id}>
-            <CardHeader className="flex flex-row items-start justify-between gap-2">
-              <div className="flex flex-col gap-1">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Building2Icon className="size-4 text-primary" />
-                  <span>{branch.name}</span>
-                </CardTitle>
-                <CardDescription className="font-mono text-xs">
-                  Mã: {branch.code}
-                </CardDescription>
-              </div>
-              <div className="flex items-center gap-1.5">
-                {branch.isDefault ? <Badge>Mặc định</Badge> : null}
-                <Badge variant={branch.isActive ? "secondary" : "outline"}>
-                  {branch.isActive ? "Đang hoạt động" : "Tạm ngưng"}
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-1 text-sm text-muted-foreground">
-              <span>
-                Địa chỉ: {branch.address ? branch.address : "Chưa cập nhật"}
-              </span>
-              <span>
-                Số điện thoại: {branch.phone ? branch.phone : "Chưa cập nhật"}
-              </span>
+      {branchesQuery.isLoading ? (
+        <CardGridSkeleton count={2} />
+      ) : branches.length === 0 ? (
+        <Card>
+          <CardContent className="pt-4">
+            <Empty>
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <Building2Icon />
+                </EmptyMedia>
+                <EmptyTitle>Chưa có chi nhánh nào</EmptyTitle>
+                <EmptyDescription>
+                  Tạo chi nhánh bán hàng đầu tiên để phân tách tồn kho và hóa
+                  đơn theo điểm bán.
+                </EmptyDescription>
+              </EmptyHeader>
               {canManage ? (
-                <div className="pt-3">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => openEditDialog(branch)}
-                  >
-                    <PencilIcon data-icon="inline-start" />
-                    Chỉnh sửa
+                <EmptyContent>
+                  <Button onClick={openCreateDialog}>
+                    <PlusIcon data-icon="inline-start" />
+                    Thêm chi nhánh
                   </Button>
-                </div>
+                </EmptyContent>
               ) : null}
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+            </Empty>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2">
+          {branches.map((branch) => (
+            <Card key={branch.id}>
+              <CardHeader className="flex flex-row items-start justify-between gap-2">
+                <div className="flex flex-col gap-1">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Building2Icon className="size-4 text-primary" />
+                    <span>{branch.name}</span>
+                  </CardTitle>
+                  <CardDescription className="font-mono text-xs">
+                    Mã: {branch.code}
+                  </CardDescription>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {branch.isDefault ? <Badge>Mặc định</Badge> : null}
+                  <Badge variant={branch.isActive ? "secondary" : "outline"}>
+                    {branch.isActive ? "Đang hoạt động" : "Tạm ngưng"}
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-1 text-sm text-muted-foreground">
+                <span>
+                  Địa chỉ: {branch.address ? branch.address : "Chưa cập nhật"}
+                </span>
+                <span>
+                  Số điện thoại: {branch.phone ? branch.phone : "Chưa cập nhật"}
+                </span>
+                {canManage ? (
+                  <div className="pt-3">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => openEditDialog(branch)}
+                    >
+                      <PencilIcon data-icon="inline-start" />
+                      Chỉnh sửa
+                    </Button>
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>
@@ -322,14 +362,18 @@ export default function BranchesPage() {
                 />
               </Field>
 
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
+              <Field orientation="horizontal">
+                <Checkbox
+                  id="branch-new-default"
                   checked={newIsDefault}
-                  onChange={(e) => setNewIsDefault(e.target.checked)}
+                  onCheckedChange={(checked) =>
+                    setNewIsDefault(Boolean(checked))
+                  }
                 />
-                <span>Đặt làm chi nhánh mặc định</span>
-              </label>
+                <FieldLabel htmlFor="branch-new-default" className="font-normal">
+                  Đặt làm chi nhánh mặc định
+                </FieldLabel>
+              </Field>
             </FieldGroup>
 
             <DialogFooter>
@@ -404,23 +448,37 @@ export default function BranchesPage() {
                 />
               </Field>
 
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
+              <Field orientation="horizontal">
+                <Checkbox
+                  id="branch-edit-default"
                   checked={editIsDefault}
-                  onChange={(e) => setEditIsDefault(e.target.checked)}
+                  onCheckedChange={(checked) =>
+                    setEditIsDefault(Boolean(checked))
+                  }
                 />
-                <span>Chi nhánh mặc định</span>
-              </label>
+                <FieldLabel
+                  htmlFor="branch-edit-default"
+                  className="font-normal"
+                >
+                  Chi nhánh mặc định
+                </FieldLabel>
+              </Field>
 
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
+              <Field orientation="horizontal">
+                <Switch
+                  id="branch-edit-active"
                   checked={editIsActive}
-                  onChange={(e) => setEditIsActive(e.target.checked)}
+                  onCheckedChange={(checked) =>
+                    setEditIsActive(Boolean(checked))
+                  }
                 />
-                <span>Đang hoạt động</span>
-              </label>
+                <FieldLabel
+                  htmlFor="branch-edit-active"
+                  className="font-normal"
+                >
+                  Đang hoạt động
+                </FieldLabel>
+              </Field>
             </FieldGroup>
 
             <DialogFooter>

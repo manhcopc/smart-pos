@@ -20,6 +20,11 @@ import {
 } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import {
+  QueryErrorAlert,
+  TableRowsSkeleton,
+} from "@/components/shared/page-states";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,6 +35,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
@@ -40,6 +52,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useMe } from "@/hooks/use-auth";
 import {
@@ -107,6 +127,15 @@ export default function IntegrationsPage() {
   const [accTo, setAccTo] = useState("");
   const [downloadingAcc, setDownloadingAcc] = useState(false);
 
+  const [pendingRevokeKey, setPendingRevokeKey] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+  const [pendingDeleteHook, setPendingDeleteHook] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+
   function toggleScope(scope: ApiKeyScope) {
     setSelectedScopes((prev) =>
       prev.includes(scope) ? prev.filter((s) => s !== scope) : [...prev, scope],
@@ -139,6 +168,17 @@ export default function IntegrationsPage() {
     }
   }
 
+  async function handleConfirmRevokeKey() {
+    if (!pendingRevokeKey) return;
+    try {
+      await revokeKeyMutation.mutateAsync(pendingRevokeKey.id);
+      toast.success(`Đã thu hồi API Key "${pendingRevokeKey.name}"`);
+      setPendingRevokeKey(null);
+    } catch (err) {
+      toast.error(formatApiError(err, "Không thể thu hồi API Key."));
+    }
+  }
+
   async function handleCreateWebhook(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!hookName.trim() || !hookUrl.trim() || selectedEvents.length === 0) {
@@ -159,6 +199,17 @@ export default function IntegrationsPage() {
     }
   }
 
+  async function handleConfirmDeleteWebhook() {
+    if (!pendingDeleteHook) return;
+    try {
+      await deleteWebhookMutation.mutateAsync(pendingDeleteHook.id);
+      toast.success(`Đã xóa Webhook "${pendingDeleteHook.name}"`);
+      setPendingDeleteHook(null);
+    } catch (err) {
+      toast.error(formatApiError(err, "Không thể xóa Webhook."));
+    }
+  }
+
   async function handleExportAccounting() {
     setDownloadingAcc(true);
     try {
@@ -175,14 +226,20 @@ export default function IntegrationsPage() {
     }
   }
 
+  const selectedAccBranch = branches.find((b) => b.id === accBranchId);
+  const apiKeys = apiKeysQuery.data ?? [];
+  const webhooks = webhooksQuery.data ?? [];
+  const deliveries = deliveriesQuery.data ?? [];
+
   return (
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-xl font-semibold tracking-tight">
-          Tích hợp Omnichannel, Webhook & Xuất Kế toán
+          Tích hợp Omnichannel, Webhook &amp; Xuất Kế toán
         </h1>
         <p className="text-sm text-muted-foreground">
-          Cấp khóa API cho Website / sàn TMĐT, nhận Webhook tồn kho theo thời gian thực qua BullMQ và xuất Sổ kế toán Excel 3 sheet.
+          Cấp khóa API cho Website / sàn TMĐT, nhận Webhook tồn kho theo thời
+          gian thực và xuất Sổ kế toán Excel 3 sheet.
         </p>
       </div>
 
@@ -194,18 +251,25 @@ export default function IntegrationsPage() {
               Xuất Sổ Kế toán Tổng hợp (.xlsx — 3 sheet)
             </CardTitle>
             <CardDescription>
-              Bao gồm: Hóa đơn & Thuế GTGT, Trả hàng & Hoàn tiền, và Bảng tổng hợp Kế toán theo ngày.
+              Bao gồm: Hóa đơn &amp; Thuế GTGT, Trả hàng &amp; Hoàn tiền, và
+              Bảng tổng hợp Kế toán theo ngày.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap items-end gap-3">
-            <div className="w-48">
-              <FieldLabel>Chi nhánh</FieldLabel>
+            <Field className="w-52">
+              <FieldLabel htmlFor="acc-branch">Chi nhánh</FieldLabel>
               <Select
                 value={accBranchId}
                 onValueChange={(v) => v && setAccBranchId(v)}
               >
-                <SelectTrigger className="mt-1">
-                  <SelectValue />
+                <SelectTrigger id="acc-branch" className="w-full">
+                  <SelectValue>
+                    {accBranchId === "ALL"
+                      ? "Tất cả chi nhánh"
+                      : selectedAccBranch
+                        ? `${selectedAccBranch.code} · ${selectedAccBranch.name}`
+                        : "Chi nhánh"}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
@@ -218,27 +282,25 @@ export default function IntegrationsPage() {
                   </SelectGroup>
                 </SelectContent>
               </Select>
-            </div>
-            <div>
+            </Field>
+            <Field className="w-40">
               <FieldLabel htmlFor="acc-from">Từ ngày</FieldLabel>
               <Input
                 id="acc-from"
                 type="date"
-                className="mt-1 w-40"
                 value={accFrom}
                 onChange={(e) => setAccFrom(e.target.value)}
               />
-            </div>
-            <div>
+            </Field>
+            <Field className="w-40">
               <FieldLabel htmlFor="acc-to">Đến ngày</FieldLabel>
               <Input
                 id="acc-to"
                 type="date"
-                className="mt-1 w-40"
                 value={accTo}
                 onChange={(e) => setAccTo(e.target.value)}
               />
-            </div>
+            </Field>
             <Button
               type="button"
               disabled={downloadingAcc}
@@ -258,19 +320,20 @@ export default function IntegrationsPage() {
           <ShieldAlertIcon />
           <AlertTitle>Hạn chế quyền cấu hình API / Webhook</AlertTitle>
           <AlertDescription>
-            Tài khoản cần quyền integration:manage để tạo API Key hoặc đăng ký Webhook.
+            Tài khoản cần quyền Quản lý tích hợp để tạo API Key hoặc đăng ký
+            Webhook.
           </AlertDescription>
         </Alert>
       ) : (
         <Tabs defaultValue="api-keys">
           <TabsList>
             <TabsTrigger value="api-keys">
-              <KeyIcon className="mr-1.5 size-4" />
-              API Keys ({apiKeysQuery.data?.length ?? 0})
+              <KeyIcon data-icon="inline-start" />
+              API Keys ({apiKeys.length})
             </TabsTrigger>
             <TabsTrigger value="webhooks">
-              <WebhookIcon className="mr-1.5 size-4" />
-              Webhooks & Delivery ({webhooksQuery.data?.length ?? 0})
+              <WebhookIcon data-icon="inline-start" />
+              Webhooks &amp; Delivery ({webhooks.length})
             </TabsTrigger>
           </TabsList>
 
@@ -278,9 +341,11 @@ export default function IntegrationsPage() {
             {revealedKey ? (
               <Alert>
                 <KeyIcon />
-                <AlertTitle>Sao chép API Key ngay (chỉ hiển thị 1 lần)</AlertTitle>
+                <AlertTitle>
+                  Sao chép API Key ngay (chỉ hiển thị 1 lần)
+                </AlertTitle>
                 <AlertDescription className="mt-2 flex flex-wrap items-center gap-2">
-                  <code className="rounded bg-muted px-2 py-1 font-mono text-xs break-all">
+                  <code className="break-all rounded bg-muted px-2 py-1 font-mono text-xs">
                     {revealedKey}
                   </code>
                   <Button
@@ -288,8 +353,13 @@ export default function IntegrationsPage() {
                     size="sm"
                     variant="outline"
                     onClick={async () => {
-                      await navigator.clipboard?.writeText(revealedKey);
-                      setCopiedKey(true);
+                      try {
+                        await navigator.clipboard?.writeText(revealedKey);
+                        setCopiedKey(true);
+                        toast.success("Đã sao chép API Key");
+                      } catch {
+                        toast.error("Không thể truy cập clipboard");
+                      }
                     }}
                   >
                     {copiedKey ? (
@@ -305,17 +375,27 @@ export default function IntegrationsPage() {
 
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Tạo API Key tích hợp mới</CardTitle>
+                <CardTitle className="text-base">
+                  Tạo API Key tích hợp mới
+                </CardTitle>
                 <CardDescription>
                   Truy cập Public API bằng header{" "}
-                  <code className="font-mono text-xs">X-Api-Key: spos_live_...</code> (cô lập strict RLS theo từng shop).
+                  <code className="font-mono text-xs">
+                    X-Api-Key: spos_live_...
+                  </code>
+                  .
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <form onSubmit={handleCreateApiKey} className="flex flex-col gap-4">
+                <form
+                  onSubmit={handleCreateApiKey}
+                  className="flex flex-col gap-4"
+                >
                   <FieldGroup>
                     <Field>
-                      <FieldLabel htmlFor="api-key-name">Tên kết nối / Sàn</FieldLabel>
+                      <FieldLabel htmlFor="api-key-name">
+                        Tên kết nối / Sàn
+                      </FieldLabel>
                       <Input
                         id="api-key-name"
                         placeholder="VD: Shopee Storefront / Website Next.js"
@@ -333,6 +413,7 @@ export default function IntegrationsPage() {
                           key={scope}
                           type="button"
                           size="sm"
+                          aria-pressed={active}
                           variant={active ? "default" : "outline"}
                           onClick={() => toggleScope(scope)}
                         >
@@ -342,58 +423,89 @@ export default function IntegrationsPage() {
                     })}
                   </div>
                   <div>
-                    <Button type="submit" disabled={createKeyMutation.isPending}>
+                    <Button
+                      type="submit"
+                      disabled={createKeyMutation.isPending}
+                    >
                       <PlusIcon data-icon="inline-start" />
-                      {createKeyMutation.isPending ? "Đang tạo..." : "Phát hành API Key"}
+                      {createKeyMutation.isPending
+                        ? "Đang tạo..."
+                        : "Phát hành API Key"}
                     </Button>
                   </div>
                 </form>
               </CardContent>
             </Card>
 
+            {apiKeysQuery.isError ? (
+              <QueryErrorAlert
+                title="Không tải được danh sách API Keys"
+                error={apiKeysQuery.error}
+                onRetry={() => void apiKeysQuery.refetch()}
+              />
+            ) : null}
+
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Danh sách API Keys đã cấp</CardTitle>
+                <CardTitle className="text-base">
+                  Danh sách API Keys đã cấp
+                </CardTitle>
               </CardHeader>
               <CardContent className="flex flex-col gap-2">
-                {(apiKeysQuery.data ?? []).map((key) => (
-                  <div
-                    key={key.id}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3"
-                  >
-                    <div className="flex flex-col gap-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-sm">{key.name}</span>
-                        <Badge variant={key.isActive ? "secondary" : "destructive"}>
-                          {key.isActive ? "Hoạt động" : "Đã thu hồi"}
-                        </Badge>
+                {apiKeysQuery.isLoading ? (
+                  <TableRowsSkeleton rows={2} />
+                ) : apiKeys.length === 0 ? (
+                  <Empty className="py-4">
+                    <EmptyHeader>
+                      <EmptyMedia variant="icon">
+                        <KeyIcon />
+                      </EmptyMedia>
+                      <EmptyTitle>Chưa có API Key nào</EmptyTitle>
+                      <EmptyDescription>
+                        Phát hành API Key ở biểu mẫu trên để kết nối website
+                        hoặc sàn TMĐT.
+                      </EmptyDescription>
+                    </EmptyHeader>
+                  </Empty>
+                ) : (
+                  apiKeys.map((key) => (
+                    <div
+                      key={key.id}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3"
+                    >
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium">
+                            {key.name}
+                          </span>
+                          <Badge
+                            variant={key.isActive ? "secondary" : "destructive"}
+                          >
+                            {key.isActive ? "Hoạt động" : "Đã thu hồi"}
+                          </Badge>
+                        </div>
+                        <span className="font-mono text-xs text-muted-foreground">
+                          {key.keyPrefix}... · Scopes: {key.scopes.join(", ")}
+                        </span>
                       </div>
-                      <span className="font-mono text-xs text-muted-foreground">
-                        {key.keyPrefix}... · Scopes: {key.scopes.join(", ")}
-                      </span>
+                      {key.isActive ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="text-destructive"
+                          disabled={revokeKeyMutation.isPending}
+                          onClick={() =>
+                            setPendingRevokeKey({ id: key.id, name: key.name })
+                          }
+                        >
+                          <Trash2Icon data-icon="inline-start" />
+                          Thu hồi
+                        </Button>
+                      ) : null}
                     </div>
-                    {key.isActive ? (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="text-destructive"
-                        disabled={revokeKeyMutation.isPending}
-                        onClick={() =>
-                          void revokeKeyMutation
-                            .mutateAsync(key.id)
-                            .then(() => toast.success("Đã thu hồi API Key"))
-                        }
-                      >
-                        <Trash2Icon data-icon="inline-start" />
-                        Thu hồi
-                      </Button>
-                    ) : null}
-                  </div>
-                ))}
-                {(apiKeysQuery.data ?? []).length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Chưa có API Key nào.</p>
-                ) : null}
+                  ))
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -401,14 +513,23 @@ export default function IntegrationsPage() {
           <TabsContent value="webhooks" className="mt-4 flex flex-col gap-4">
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Đăng ký Webhook Endpoint mới</CardTitle>
+                <CardTitle className="text-base">
+                  Đăng ký Webhook Endpoint mới
+                </CardTitle>
                 <CardDescription>
-                  Mỗi yêu cầu gửi đi qua BullMQ đều đính kèm chữ ký HMAC-SHA256 trong header{" "}
-                  <code className="font-mono text-xs">X-SmartPOS-Signature</code>.
+                  Mỗi yêu cầu gửi đi đều đính kèm chữ ký HMAC-SHA256 trong
+                  header{" "}
+                  <code className="font-mono text-xs">
+                    X-SmartPOS-Signature
+                  </code>
+                  .
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <form onSubmit={handleCreateWebhook} className="flex flex-col gap-4">
+                <form
+                  onSubmit={handleCreateWebhook}
+                  className="flex flex-col gap-4"
+                >
                   <FieldGroup className="grid gap-4 md:grid-cols-2">
                     <Field>
                       <FieldLabel htmlFor="wh-name">Tên Webhook</FieldLabel>
@@ -421,7 +542,9 @@ export default function IntegrationsPage() {
                       />
                     </Field>
                     <Field>
-                      <FieldLabel htmlFor="wh-url">Endpoint URL (HTTPS)</FieldLabel>
+                      <FieldLabel htmlFor="wh-url">
+                        Endpoint URL (HTTPS)
+                      </FieldLabel>
                       <Input
                         id="wh-url"
                         type="url"
@@ -441,6 +564,7 @@ export default function IntegrationsPage() {
                           key={ev}
                           type="button"
                           size="sm"
+                          aria-pressed={active}
                           variant={active ? "default" : "outline"}
                           onClick={() => toggleEvent(ev)}
                         >
@@ -451,143 +575,228 @@ export default function IntegrationsPage() {
                   </div>
 
                   <div>
-                    <Button type="submit" disabled={createWebhookMutation.isPending}>
+                    <Button
+                      type="submit"
+                      disabled={createWebhookMutation.isPending}
+                    >
                       <PlusIcon data-icon="inline-start" />
-                      {createWebhookMutation.isPending ? "Đang lưu..." : "Thêm Webhook"}
+                      {createWebhookMutation.isPending
+                        ? "Đang lưu..."
+                        : "Thêm Webhook"}
                     </Button>
                   </div>
                 </form>
               </CardContent>
             </Card>
 
+            {webhooksQuery.isError ? (
+              <QueryErrorAlert
+                title="Không tải được danh sách Webhook"
+                error={webhooksQuery.error}
+                onRetry={() => void webhooksQuery.refetch()}
+              />
+            ) : null}
+
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Endpoints đang cấu hình</CardTitle>
+                <CardTitle className="text-base">
+                  Endpoints đang cấu hình
+                </CardTitle>
               </CardHeader>
               <CardContent className="flex flex-col gap-2">
-                {(webhooksQuery.data ?? []).map((hook) => (
-                  <div
-                    key={hook.id}
-                    className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3"
-                  >
-                    <div className="flex flex-col gap-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-sm">{hook.name}</span>
-                        <Badge variant={hook.isActive ? "secondary" : "outline"}>
-                          {hook.isActive ? "Đang bật" : "Tạm tắt"}
-                        </Badge>
+                {webhooksQuery.isLoading ? (
+                  <TableRowsSkeleton rows={2} />
+                ) : webhooks.length === 0 ? (
+                  <Empty className="py-4">
+                    <EmptyHeader>
+                      <EmptyMedia variant="icon">
+                        <WebhookIcon />
+                      </EmptyMedia>
+                      <EmptyTitle>Chưa có Webhook nào</EmptyTitle>
+                      <EmptyDescription>
+                        Đăng ký endpoint HTTPS ở trên để nhận thông báo tồn kho
+                        và hóa đơn tự động.
+                      </EmptyDescription>
+                    </EmptyHeader>
+                  </Empty>
+                ) : (
+                  webhooks.map((hook) => (
+                    <div
+                      key={hook.id}
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3"
+                    >
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium">
+                            {hook.name}
+                          </span>
+                          <Badge
+                            variant={hook.isActive ? "secondary" : "outline"}
+                          >
+                            {hook.isActive ? "Đang bật" : "Tạm tắt"}
+                          </Badge>
+                        </div>
+                        <span className="font-mono text-xs">
+                          {hook.targetUrl}
+                        </span>
+                        <span className="font-mono text-xs text-muted-foreground">
+                          Events: {hook.events.join(", ")} · Secret:{" "}
+                          {hook.signingSecret.slice(0, 12)}...
+                        </span>
                       </div>
-                      <span className="font-mono text-xs">{hook.targetUrl}</span>
-                      <span className="font-mono text-xs text-muted-foreground">
-                        Events: {hook.events.join(", ")} · Secret: {hook.signingSecret.slice(0, 12)}...
-                      </span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={testWebhookMutation.isPending}
+                          onClick={async () => {
+                            try {
+                              await testWebhookMutation.mutateAsync(hook.id);
+                              toast.success("Đã đẩy event Test vào hàng đợi");
+                            } catch (err) {
+                              toast.error(formatApiError(err));
+                            }
+                          }}
+                        >
+                          <SendIcon data-icon="inline-start" />
+                          Test
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={async () => {
+                            try {
+                              await updateWebhookMutation.mutateAsync({
+                                id: hook.id,
+                                data: { isActive: !hook.isActive },
+                              });
+                            } catch (err) {
+                              toast.error(formatApiError(err));
+                            }
+                          }}
+                        >
+                          {hook.isActive ? "Tạm tắt" : "Bật lại"}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="icon-sm"
+                          variant="ghost"
+                          aria-label={`Xóa webhook ${hook.name}`}
+                          className="text-destructive"
+                          onClick={() =>
+                            setPendingDeleteHook({
+                              id: hook.id,
+                              name: hook.name,
+                            })
+                          }
+                        >
+                          <Trash2Icon />
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={testWebhookMutation.isPending}
-                        onClick={() =>
-                          void testWebhookMutation
-                            .mutateAsync(hook.id)
-                            .then(() => toast.success("Đã đẩy event Test vào hàng đợi"))
-                        }
-                      >
-                        <SendIcon data-icon="inline-start" />
-                        Test
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() =>
-                          void updateWebhookMutation.mutateAsync({
-                            id: hook.id,
-                            data: { isActive: !hook.isActive },
-                          })
-                        }
-                      >
-                        {hook.isActive ? "Tạm tắt" : "Bật lại"}
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        className="text-destructive"
-                        onClick={() =>
-                          void deleteWebhookMutation
-                            .mutateAsync(hook.id)
-                            .then(() => toast.success("Đã xóa Webhook"))
-                        }
-                      >
-                        <Trash2Icon />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-                {(webhooksQuery.data ?? []).length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Chưa có Webhook nào.</p>
-                ) : null}
+                  ))
+                )}
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Lịch sử gửi Webhook (BullMQ Delivery Log)</CardTitle>
+                <CardTitle className="text-base">
+                  Lịch sử gửi Webhook (Delivery Log)
+                </CardTitle>
               </CardHeader>
               <CardContent>
-                {(deliveriesQuery.data ?? []).length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Chưa có lượt gửi nào.</p>
+                {deliveriesQuery.isError ? (
+                  <QueryErrorAlert
+                    title="Không tải được lịch sử gửi Webhook"
+                    error={deliveriesQuery.error}
+                    onRetry={() => void deliveriesQuery.refetch()}
+                  />
+                ) : deliveriesQuery.isLoading ? (
+                  <TableRowsSkeleton rows={3} />
+                ) : deliveries.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    Chưa có lượt gửi nào.
+                  </p>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs">
-                      <thead>
-                        <tr className="border-b text-muted-foreground">
-                          <th className="py-2 pr-3">Thời gian</th>
-                          <th className="py-2 pr-3">Endpoint</th>
-                          <th className="py-2 pr-3">Sự kiện</th>
-                          <th className="py-2 pr-3">Trạng thái</th>
-                          <th className="py-2 pr-3">HTTP</th>
-                          <th className="py-2">Phản hồi</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(deliveriesQuery.data ?? []).map((del) => (
-                          <tr key={del.id} className="border-b last:border-0">
-                            <td className="py-2 pr-3">
-                              {new Date(del.createdAt).toLocaleString("vi-VN")}
-                            </td>
-                            <td className="py-2 pr-3 font-medium">{del.endpointName}</td>
-                            <td className="py-2 pr-3 font-mono">{del.eventType}</td>
-                            <td className="py-2 pr-3">
-                              <Badge
-                                variant={
-                                  del.status === "DELIVERED"
-                                    ? "secondary"
-                                    : del.status === "FAILED"
-                                      ? "destructive"
-                                      : "outline"
-                                }
-                              >
-                                {WEBHOOK_DELIVERY_STATUS_LABELS[del.status]}
-                              </Badge>
-                            </td>
-                            <td className="py-2 pr-3 font-mono">{del.httpStatus ?? "-"}</td>
-                            <td className="py-2 max-w-xs truncate font-mono text-muted-foreground">
-                              {del.responseSnippet ?? ""}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  <Table className="text-xs">
+                    <TableHeader>
+                      <TableRow className="text-muted-foreground">
+                        <TableHead>Thời gian</TableHead>
+                        <TableHead>Endpoint</TableHead>
+                        <TableHead>Sự kiện</TableHead>
+                        <TableHead>Trạng thái</TableHead>
+                        <TableHead>HTTP</TableHead>
+                        <TableHead>Phản hồi</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {deliveries.map((del) => (
+                        <TableRow key={del.id}>
+                          <TableCell>
+                            {new Date(del.createdAt).toLocaleString("vi-VN")}
+                          </TableCell>
+                          <TableCell className="font-medium">
+                            {del.endpointName}
+                          </TableCell>
+                          <TableCell className="font-mono">
+                            {del.eventType}
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant={
+                                del.status === "DELIVERED"
+                                  ? "secondary"
+                                  : del.status === "FAILED"
+                                    ? "destructive"
+                                    : "outline"
+                              }
+                            >
+                              {WEBHOOK_DELIVERY_STATUS_LABELS[del.status]}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="font-mono">
+                            {del.httpStatus ?? "-"}
+                          </TableCell>
+                          <TableCell className="max-w-xs truncate font-mono text-muted-foreground">
+                            {del.responseSnippet ?? ""}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
                 )}
               </CardContent>
             </Card>
           </TabsContent>
         </Tabs>
       )}
+
+      <ConfirmDialog
+        open={Boolean(pendingRevokeKey)}
+        onOpenChange={(open) => {
+          if (!open) setPendingRevokeKey(null);
+        }}
+        title={`Thu hồi API Key "${pendingRevokeKey?.name ?? ""}"?`}
+        description="Mọi tích hợp đang sử dụng khóa này sẽ lập tức bị từ chối kết nối."
+        confirmLabel="Thu hồi khóa"
+        isPending={revokeKeyMutation.isPending}
+        onConfirm={handleConfirmRevokeKey}
+      />
+
+      <ConfirmDialog
+        open={Boolean(pendingDeleteHook)}
+        onOpenChange={(open) => {
+          if (!open) setPendingDeleteHook(null);
+        }}
+        title={`Xóa Webhook "${pendingDeleteHook?.name ?? ""}"?`}
+        description="Endpoint này sẽ ngừng nhận các sự kiện tồn kho và hóa đơn từ Smart-POS."
+        confirmLabel="Xóa Webhook"
+        isPending={deleteWebhookMutation.isPending}
+        onConfirm={handleConfirmDeleteWebhook}
+      />
     </div>
   );
 }

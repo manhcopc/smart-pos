@@ -16,6 +16,11 @@ import {
 } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
+import { DataPagination } from "@/components/shared/data-pagination";
+import {
+  CardGridSkeleton,
+  QueryErrorAlert,
+} from "@/components/shared/page-states";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -26,6 +31,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -34,6 +40,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
@@ -44,6 +58,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { useMe } from "@/hooks/use-auth";
 import {
   useBalanceStockCount,
@@ -70,6 +92,7 @@ export default function StockCountsPage() {
   const defaultBranchId =
     branches.find((b) => b.isDefault)?.id ?? branches[0]?.id ?? "";
 
+  const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
   const [scBranchId, setScBranchId] = useState("");
   const [balanceImmediately, setBalanceImmediately] = useState(false);
@@ -79,7 +102,7 @@ export default function StockCountsPage() {
   const effectiveBranchId = scBranchId || defaultBranchId;
 
   const stockCountsQuery = useStockCounts(
-    { page: 1, limit: 30 },
+    { page, limit: 20 },
     Boolean(profile),
   );
   const branchStockQuery = useInventory(
@@ -140,7 +163,7 @@ export default function StockCountsPage() {
       await createScMutation.mutateAsync(parsed.data);
       toast.success(
         balanceImmediately
-          ? "Đã cân bằng kho và ghi nhận AuditLog"
+          ? "Đã cân bằng kho và lưu nhật ký kiểm toán"
           : "Đã tạo phiếu kiểm kho nháp",
       );
       setCreateOpen(false);
@@ -150,15 +173,18 @@ export default function StockCountsPage() {
   }
 
   const counts = stockCountsQuery.data?.items ?? [];
+  const pagination = stockCountsQuery.data?.pagination;
 
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <h1 className="text-xl font-semibold">Phiếu Kiểm kho &amp; Đối soát</h1>
+          <h1 className="text-xl font-semibold">
+            Phiếu Kiểm kho &amp; Đối soát
+          </h1>
           <p className="text-sm text-muted-foreground">
             Đối chiếu tồn thực tế với sổ sách, bắt buộc ghi rõ lý do chênh lệch
-            và lưu AuditLog bất biến khi cân bằng.
+            và lưu lịch sử bất biến khi cân bằng.
           </p>
         </div>
 
@@ -183,120 +209,166 @@ export default function StockCountsPage() {
         </Alert>
       ) : null}
 
+      {stockCountsQuery.isError ? (
+        <QueryErrorAlert
+          title="Không tải được danh sách phiếu kiểm kho"
+          error={stockCountsQuery.error}
+          onRetry={() => void stockCountsQuery.refetch()}
+        />
+      ) : null}
+
       <div className="flex flex-col gap-4">
-        {counts.map((sc) => (
-          <Card key={sc.id}>
-            <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
-              <div className="flex flex-col gap-1">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <span className="font-mono">{sc.code}</span>
-                  <Badge
-                    variant={
-                      sc.status === "BALANCED"
-                        ? "secondary"
-                        : sc.status === "CANCELLED"
-                          ? "outline"
-                          : "default"
-                    }
-                  >
-                    {STOCK_COUNT_STATUS_LABELS[sc.status]}
-                  </Badge>
-                </CardTitle>
-                <CardDescription>
-                  Chi nhánh: {sc.branchCode} · {sc.branchName} · Tạo bởi{" "}
-                  {sc.createdByName}
-                  {sc.balancedByName
-                    ? ` · Cân bằng bởi ${sc.balancedByName}`
-                    : ""}
-                </CardDescription>
-              </div>
-
-              {canCount && sc.status === "DRAFT" ? (
-                <div className="flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    onClick={async () => {
-                      try {
-                        await balanceScMutation.mutateAsync({
-                          id: sc.id,
-                          data: {},
-                        });
-                        toast.success(`Đã cân bằng kho phiếu ${sc.code}`);
-                      } catch (err) {
-                        toast.error(formatApiError(err));
-                      }
-                    }}
-                    disabled={balanceScMutation.isPending}
-                  >
-                    <CheckCircle2Icon data-icon="inline-start" />
-                    Cân bằng kho
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={async () => {
-                      try {
-                        await cancelScMutation.mutateAsync(sc.id);
-                        toast.success(`Đã hủy phiếu ${sc.code}`);
-                      } catch (err) {
-                        toast.error(formatApiError(err));
-                      }
-                    }}
-                    disabled={cancelScMutation.isPending}
-                  >
-                    <XCircleIcon data-icon="inline-start" />
-                    Hủy
-                  </Button>
-                </div>
-              ) : null}
-            </CardHeader>
-
-            <CardContent className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead>
-                  <tr className="border-b text-xs text-muted-foreground">
-                    <th className="py-1.5 pr-3">SKU</th>
-                    <th className="py-1.5 pr-3">Tên hàng</th>
-                    <th className="py-1.5 pr-3 text-right">Sổ sách</th>
-                    <th className="py-1.5 pr-3 text-right">Thực tế</th>
-                    <th className="py-1.5 pr-3 text-right">Chênh lệch</th>
-                    <th className="py-1.5">Lý do</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sc.items.map((item) => (
-                    <tr key={item.id} className="border-b last:border-b-0">
-                      <td className="py-1.5 pr-3 font-mono text-xs">
-                        {item.sku}
-                      </td>
-                      <td className="py-1.5 pr-3">{item.variantName}</td>
-                      <td className="py-1.5 pr-3 text-right font-mono">
-                        {item.systemQty}
-                      </td>
-                      <td className="py-1.5 pr-3 text-right font-mono">
-                        {item.actualQty}
-                      </td>
-                      <td
-                        className={`py-1.5 pr-3 text-right font-mono font-medium ${
-                          Number(item.varianceQty) !== 0
-                            ? "text-destructive"
-                            : ""
-                        }`}
-                      >
-                        {Number(item.varianceQty) > 0
-                          ? `+${item.varianceQty}`
-                          : item.varianceQty}
-                      </td>
-                      <td className="py-1.5 text-xs text-muted-foreground">
-                        {item.reason ?? "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        {stockCountsQuery.isLoading ? (
+          <CardGridSkeleton count={3} columnsClass="flex flex-col gap-4" />
+        ) : counts.length === 0 ? (
+          <Card>
+            <CardContent className="pt-4">
+              <Empty>
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <ClipboardCheckIcon />
+                  </EmptyMedia>
+                  <EmptyTitle>Chưa có phiếu kiểm kho nào</EmptyTitle>
+                  <EmptyDescription>
+                    Tạo phiếu kiểm kê định kỳ để đối chiếu tồn thực tế với sổ
+                    sách chi nhánh.
+                  </EmptyDescription>
+                </EmptyHeader>
+                {canCount && branchInventoryItems.length > 0 ? (
+                  <EmptyContent>
+                    <Button onClick={openCreateDialog}>
+                      <ClipboardCheckIcon data-icon="inline-start" />
+                      Tạo phiếu kiểm kho
+                    </Button>
+                  </EmptyContent>
+                ) : null}
+              </Empty>
             </CardContent>
           </Card>
-        ))}
+        ) : (
+          counts.map((sc) => (
+            <Card key={sc.id}>
+              <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
+                <div className="flex flex-col gap-1">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <span className="font-mono">{sc.code}</span>
+                    <Badge
+                      variant={
+                        sc.status === "BALANCED"
+                          ? "secondary"
+                          : sc.status === "CANCELLED"
+                            ? "outline"
+                            : "default"
+                      }
+                    >
+                      {STOCK_COUNT_STATUS_LABELS[sc.status]}
+                    </Badge>
+                  </CardTitle>
+                  <CardDescription>
+                    Chi nhánh: {sc.branchCode} · {sc.branchName} · Tạo bởi{" "}
+                    {sc.createdByName}
+                    {sc.balancedByName
+                      ? ` · Cân bằng bởi ${sc.balancedByName}`
+                      : ""}
+                  </CardDescription>
+                </div>
+
+                {canCount && sc.status === "DRAFT" ? (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      onClick={async () => {
+                        try {
+                          await balanceScMutation.mutateAsync({
+                            id: sc.id,
+                            data: {},
+                          });
+                          toast.success(`Đã cân bằng kho phiếu ${sc.code}`);
+                        } catch (err) {
+                          toast.error(formatApiError(err));
+                        }
+                      }}
+                      disabled={balanceScMutation.isPending}
+                    >
+                      <CheckCircle2Icon data-icon="inline-start" />
+                      Cân bằng kho
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={async () => {
+                        try {
+                          await cancelScMutation.mutateAsync(sc.id);
+                          toast.success(`Đã hủy phiếu ${sc.code}`);
+                        } catch (err) {
+                          toast.error(formatApiError(err));
+                        }
+                      }}
+                      disabled={cancelScMutation.isPending}
+                    >
+                      <XCircleIcon data-icon="inline-start" />
+                      Hủy
+                    </Button>
+                  </div>
+                ) : null}
+              </CardHeader>
+
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow className="text-xs text-muted-foreground">
+                      <TableHead>SKU</TableHead>
+                      <TableHead>Tên hàng</TableHead>
+                      <TableHead className="text-right">Sổ sách</TableHead>
+                      <TableHead className="text-right">Thực tế</TableHead>
+                      <TableHead className="text-right">Chênh lệch</TableHead>
+                      <TableHead>Lý do</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {sc.items.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell className="font-mono text-xs">
+                          {item.sku}
+                        </TableCell>
+                        <TableCell>{item.variantName}</TableCell>
+                        <TableCell className="text-right font-mono tabular-nums">
+                          {item.systemQty}
+                        </TableCell>
+                        <TableCell className="text-right font-mono tabular-nums">
+                          {item.actualQty}
+                        </TableCell>
+                        <TableCell
+                          className={`text-right font-mono font-medium tabular-nums ${
+                            Number(item.varianceQty) !== 0
+                              ? "text-destructive"
+                              : ""
+                          }`}
+                        >
+                          {Number(item.varianceQty) > 0
+                            ? `+${item.varianceQty}`
+                            : item.varianceQty}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {item.reason ?? "—"}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          ))
+        )}
+
+        {pagination ? (
+          <DataPagination
+            page={page}
+            totalPages={pagination.totalPages}
+            totalItems={pagination.total}
+            onPageChange={setPage}
+          />
+        ) : null}
       </div>
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
@@ -372,7 +444,8 @@ export default function StockCountsPage() {
                 </div>
 
                 {lines.map((line, idx) => {
-                  const bookStr = bookQtyByVariantId.get(line.variantId) ?? "0.000";
+                  const bookStr =
+                    bookQtyByVariantId.get(line.variantId) ?? "0.000";
                   let varianceText = "0.000";
                   let hasVariance = false;
                   try {
@@ -441,7 +514,7 @@ export default function StockCountsPage() {
                       </div>
 
                       <Input
-                        aria-label="Số lượng thực tế"
+                        aria-label={`Số lượng thực tế dòng ${idx + 1}`}
                         placeholder="Thực tế"
                         value={line.actualQty}
                         onChange={(e) =>
@@ -456,7 +529,7 @@ export default function StockCountsPage() {
                       />
 
                       <Input
-                        aria-label="Lý do chênh lệch"
+                        aria-label={`Lý do chênh lệch dòng ${idx + 1}`}
                         placeholder={
                           hasVariance
                             ? "Lý do bắt buộc..."
@@ -478,28 +551,31 @@ export default function StockCountsPage() {
                         type="button"
                         variant="ghost"
                         size="icon-sm"
+                        aria-label={`Xóa dòng kiểm kho ${idx + 1}`}
                         disabled={lines.length <= 1}
                         onClick={() =>
                           setLines((prev) => prev.filter((_, i) => i !== idx))
                         }
                       >
-                        <Trash2Icon className="size-4 text-destructive" />
+                        <Trash2Icon className="text-destructive" />
                       </Button>
                     </div>
                   );
                 })}
               </div>
 
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
+              <Field orientation="horizontal">
+                <Checkbox
+                  id="sc-balance-now"
                   checked={balanceImmediately}
-                  onChange={(e) => setBalanceImmediately(e.target.checked)}
+                  onCheckedChange={(checked) =>
+                    setBalanceImmediately(Boolean(checked))
+                  }
                 />
-                <span>
-                  Cân bằng tồn kho ngay (ghi InventoryLedger &amp; AuditLog)
-                </span>
-              </label>
+                <FieldLabel htmlFor="sc-balance-now" className="font-normal">
+                  Cân bằng tồn kho ngay và ghi nhật ký điều chỉnh
+                </FieldLabel>
+              </Field>
             </FieldGroup>
 
             <DialogFooter>
