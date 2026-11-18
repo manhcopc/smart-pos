@@ -4,7 +4,7 @@ import {
   SUPERVISOR_APPROVAL_PERMISSIONS,
   type SupervisorApprovalResponse,
 } from "@smart-pos/shared";
-import { AlertCircleIcon, ShieldCheckIcon } from "lucide-react";
+import { AlertCircleIcon, DeleteIcon, ShieldCheckIcon } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -17,7 +17,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
+import {
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+} from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { useSupervisorApprove } from "@/hooks/use-pos";
 import { formatApiError } from "@/lib/api-client";
@@ -31,6 +36,8 @@ interface SupervisorPinDialogProps {
   onApproved: (approval: SupervisorApprovalResponse) => void;
 }
 
+const PIN_DIGITS = ["1", "2", "3", "4", "5", "6", "7", "8", "9"] as const;
+
 export function SupervisorPinDialog({
   branchId,
   permission,
@@ -40,6 +47,7 @@ export function SupervisorPinDialog({
 }: SupervisorPinDialogProps) {
   const [employeeCode, setEmployeeCode] = useState("");
   const [pin, setPin] = useState("");
+  const [showTouchPad, setShowTouchPad] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const approveMutation = useSupervisorApprove();
 
@@ -102,7 +110,17 @@ export function SupervisorPinDialog({
               />
             </Field>
             <Field>
-              <FieldLabel htmlFor="sup-pin">Mã PIN phê duyệt</FieldLabel>
+              <div className="flex items-center justify-between gap-2">
+                <FieldLabel htmlFor="sup-pin">Mã PIN phê duyệt</FieldLabel>
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="ghost"
+                  onClick={() => setShowTouchPad((prev) => !prev)}
+                >
+                  {showTouchPad ? "Ẩn bàn phím số" : "Bàn phím số chạm"}
+                </Button>
+              </div>
               <Input
                 id="sup-pin"
                 type="password"
@@ -114,10 +132,63 @@ export function SupervisorPinDialog({
                 required
               />
               <FieldDescription>
-                Phiên xác thực có hiệu lực 5 phút và được ghi vào Audit Log.
+                Phiên xác thực có hiệu lực 5 phút và được ghi vào nhật ký kiểm
+                toán.
               </FieldDescription>
             </Field>
           </FieldGroup>
+
+          {showTouchPad ? (
+            <div
+              className="grid grid-cols-3 gap-2 rounded-lg border bg-muted/30 p-2.5"
+              aria-label="Bàn phím số nhập PIN Quản lý"
+            >
+              {PIN_DIGITS.map((digit) => (
+                <Button
+                  key={digit}
+                  type="button"
+                  variant="outline"
+                  size="touch"
+                  className="font-mono text-base font-semibold"
+                  onClick={() =>
+                    setPin((prev) =>
+                      prev.length < 8 ? `${prev}${digit}` : prev,
+                    )
+                  }
+                >
+                  {digit}
+                </Button>
+              ))}
+              <Button
+                type="button"
+                variant="ghost"
+                size="touch"
+                onClick={() => setPin("")}
+              >
+                Xóa hết
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="touch"
+                className="font-mono text-base font-semibold"
+                onClick={() =>
+                  setPin((prev) => (prev.length < 8 ? `${prev}0` : prev))
+                }
+              >
+                0
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="touch"
+                aria-label="Xóa 1 chữ số PIN"
+                onClick={() => setPin((prev) => prev.slice(0, -1))}
+              >
+                <DeleteIcon />
+              </Button>
+            </div>
+          ) : null}
 
           <DialogFooter>
             <Button
@@ -129,6 +200,7 @@ export function SupervisorPinDialog({
             </Button>
             <Button
               type="submit"
+              size="touch"
               disabled={approveMutation.isPending || pin.trim().length < 4}
             >
               {approveMutation.isPending ? "Đang xác thực..." : "Xác nhận PIN"}
