@@ -3,6 +3,7 @@ import {
   type MessageEvent,
   OnModuleDestroy,
   OnModuleInit,
+  Optional,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import type { PosStockStreamEvent } from "@smart-pos/shared";
@@ -16,6 +17,7 @@ import {
   Subject,
 } from "rxjs";
 import { AppEnv } from "../config/env";
+import { BullMqJobsService } from "../jobs/bullmq-jobs.service";
 import { RedisService } from "../redis/redis.service";
 
 const STOCK_CHANNEL = "smartpos:pos:stock_events";
@@ -34,6 +36,7 @@ export class PosEventsService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly redisService: RedisService,
     private readonly configService: ConfigService<AppEnv, true>,
+    @Optional() private readonly bullMqJobs?: BullMqJobsService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -93,6 +96,22 @@ export class PosEventsService implements OnModuleInit, OnModuleDestroy {
         items,
       },
     };
+
+    if (this.bullMqJobs) {
+      await this.bullMqJobs
+        .enqueueWebhookDelivery({
+          tenantId,
+          eventType: "STOCK_UPDATED",
+          payload: {
+            event: "STOCK_UPDATED",
+            tenantId,
+            branchId,
+            timestamp: envelope.event.timestamp,
+            items,
+          },
+        })
+        .catch(() => undefined);
+    }
 
     if (this.subscriber) {
       try {

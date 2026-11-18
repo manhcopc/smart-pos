@@ -11,7 +11,12 @@ import {
   createStaffMemberSchema,
   createStockCountSchema,
   createStockTransferSchema,
+  createWebhookSchema,
+  externalOrderSyncSchema,
+  offlineSyncBatchSchema,
   registerTenantSchema,
+  subscribePlanSchema,
+  createApiKeySchema,
   updateBranchSchema,
 } from "../index";
 
@@ -167,6 +172,61 @@ describe("shared Zod schemas", () => {
         reportType: "SALES_DETAIL",
         from: "2026-11-01",
         to: "2026-11-17",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("validates Phase 5 offline sync batch, SaaS billing, webhooks, and external orders", () => {
+    expect(
+      subscribePlanSchema.safeParse({
+        planCode: "PRO",
+        billingMonths: 3,
+      }).success,
+    ).toBe(true);
+
+    expect(
+      createApiKeySchema.safeParse({
+        name: "Shopee Integration",
+        scopes: ["inventory:read", "orders:write"],
+      }).success,
+    ).toBe(true);
+
+    expect(
+      createWebhookSchema.safeParse({
+        name: "Website Stock Hook",
+        targetUrl: "https://example.com/webhooks/smartpos",
+        events: ["STOCK_UPDATED"],
+      }).success,
+    ).toBe(true);
+
+    expect(
+      externalOrderSyncSchema.safeParse({
+        externalOrderId: "SHOPEE-998811",
+        channel: "SHOPEE",
+        items: [{ sku: "AT-01", quantity: "2" }],
+      }).success,
+    ).toBe(true);
+
+    expect(
+      offlineSyncBatchSchema.safeParse({
+        invoices: [
+          {
+            queuedAt: "2026-11-17T10:00:00.000Z",
+            payload: {
+              idempotencyKey: "550e8400-e29b-41d4-a716-446655440000",
+              branchId: "550e8400-e29b-41d4-a716-446655440001",
+              shiftId: "550e8400-e29b-41d4-a716-446655440002",
+              syncSource: "OFFLINE_SYNC",
+              items: [
+                {
+                  variantId: "550e8400-e29b-41d4-a716-446655440003",
+                  quantity: "1",
+                },
+              ],
+              payments: [{ method: "CASH", amount: "50000.00" }],
+            },
+          },
+        ],
       }).success,
     ).toBe(true);
   });

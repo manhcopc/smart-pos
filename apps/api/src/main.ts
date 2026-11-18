@@ -6,6 +6,7 @@ import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import { AppModule } from "./app.module";
 import { AllExceptionsFilter } from "./common/filters/all-exceptions.filter";
+import { enrichOpenApiWithZodPipes } from "./common/swagger/zod-openapi.helper";
 import { AppEnv } from "./config/env";
 
 async function bootstrap(): Promise<void> {
@@ -36,9 +37,13 @@ async function bootstrap(): Promise<void> {
       )
       .setVersion("0.1.0")
       .addBearerAuth()
+      .addApiKey({ type: "apiKey", name: "X-Api-Key", in: "header" }, "X-Api-Key")
       .build();
 
-    const document = SwaggerModule.createDocument(app, swaggerConfig);
+    const document = enrichOpenApiWithZodPipes(
+      app,
+      SwaggerModule.createDocument(app, swaggerConfig),
+    );
     SwaggerModule.setup("api/docs", app, document);
   }
 

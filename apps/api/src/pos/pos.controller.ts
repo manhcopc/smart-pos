@@ -26,6 +26,9 @@ import {
   type InvoiceListQuery,
   invoiceListQuerySchema,
   type InvoiceReceiptResponse,
+  type OfflineSyncBatchInput,
+  offlineSyncBatchSchema,
+  type OfflineSyncBatchResponse,
   type OpenShiftInput,
   openShiftSchema,
   PERMISSIONS,
@@ -57,6 +60,7 @@ import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { PosCatalogSyncService } from "./pos-catalog-sync.service";
 import { PosCheckoutService } from "./pos-checkout.service";
 import { PosEventsService } from "./pos-events.service";
+import { PosOfflineSyncService } from "./pos-offline-sync.service";
 import { PosReturnsService } from "./pos-returns.service";
 import { PosShiftsService } from "./pos-shifts.service";
 import { PosSupervisorService } from "./pos-supervisor.service";
@@ -73,6 +77,7 @@ export class PosController {
     private readonly eventsService: PosEventsService,
     private readonly returnsService: PosReturnsService,
     private readonly supervisorService: PosSupervisorService,
+    private readonly offlineSyncService: PosOfflineSyncService,
   ) {}
 
   @Get("catalog-sync")
@@ -264,6 +269,23 @@ export class PosController {
     @Req() req: Request,
   ): Promise<{ ok: true }> {
     return this.returnsService.openCashDrawer(
+      auth,
+      body,
+      extractRequestMeta(req),
+    );
+  }
+
+  @Post("offline-sync/invoices")
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions(PERMISSIONS.POS_SELL)
+  @ApiOperation({ summary: "Batch synchronize queued IndexedDB offline invoices and return stock/shift conflict diagnostics" })
+  async syncOfflineInvoices(
+    @CurrentAuth() auth: AuthenticatedContext,
+    @Body(new ZodValidationPipe(offlineSyncBatchSchema))
+    body: OfflineSyncBatchInput,
+    @Req() req: Request,
+  ): Promise<OfflineSyncBatchResponse> {
+    return this.offlineSyncService.syncOfflineBatch(
       auth,
       body,
       extractRequestMeta(req),

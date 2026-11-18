@@ -69,7 +69,7 @@ export function serializeInvoiceReceipt(
     branchId: row.branchId,
     branchCode: row.branch.code,
     branchName: row.branch.name,
-    shiftId: row.shiftId,
+    shiftId: row.shiftId ?? "",
     cashierMemberId: row.cashierMemberId,
     cashierName: row.cashierMember.user.fullName,
     customerId: row.customerId ?? null,

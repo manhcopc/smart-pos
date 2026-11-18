@@ -3,6 +3,7 @@ import { AuthModule } from "../auth/auth.module";
 import { PosCatalogSyncService } from "./pos-catalog-sync.service";
 import { PosCheckoutService } from "./pos-checkout.service";
 import { PosEventsService } from "./pos-events.service";
+import { PosOfflineSyncService } from "./pos-offline-sync.service";
 import { PosReturnsService } from "./pos-returns.service";
 import { PosShiftsService } from "./pos-shifts.service";
 import { PosSupervisorService } from "./pos-supervisor.service";
@@ -18,7 +19,8 @@ import { PosController } from "./pos.controller";
     PosSupervisorService,
     PosCheckoutService,
     PosReturnsService,
+    PosOfflineSyncService,
   ],
-  exports: [PosEventsService, PosSupervisorService],
+  exports: [PosEventsService, PosSupervisorService, PosCheckoutService],
 })
 export class PosModule {}

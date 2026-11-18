@@ -338,3 +338,43 @@ export interface PosStockStreamEvent {
     available: string;
   }>;
 }
+
+export const offlineSyncInvoiceEntrySchema = z
+  .object({
+    queuedAt: z.string().datetime({ offset: true }),
+    payload: createInvoiceSchema,
+  })
+  .strict();
+
+export const offlineSyncBatchSchema = z
+  .object({
+    invoices: z.array(offlineSyncInvoiceEntrySchema).min(1).max(50),
+  })
+  .strict();
+
+export type OfflineSyncBatchInput = z.infer<typeof offlineSyncBatchSchema>;
+
+export interface OfflineSyncLatestStockInfo {
+  variantId: string;
+  sku: string;
+  available: string;
+}
+
+export interface OfflineSyncItemOutcome {
+  idempotencyKey: string;
+  status: "SYNCED" | "CONFLICT" | "FAILED";
+  receipt?: InvoiceReceiptResponse;
+  errorCode?: string;
+  message?: string;
+  latestStock?: OfflineSyncLatestStockInfo[];
+}
+
+export interface OfflineSyncBatchResponse {
+  summary: {
+    total: number;
+    synced: number;
+    conflicts: number;
+    failed: number;
+  };
+  results: OfflineSyncItemOutcome[];
+}

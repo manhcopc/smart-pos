@@ -37,6 +37,10 @@ export const TENANT_SCOPED_MODELS = new Set<string>([
   "stockTransfer",
   "stockTransferItem",
   "reportExportJob",
+  "subscriptionBilling",
+  "tenantApiKey",
+  "webhookEndpoint",
+  "webhookDelivery",
 ]);
 
 const READ_OPERATIONS = new Set([
