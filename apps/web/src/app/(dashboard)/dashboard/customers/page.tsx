@@ -15,6 +15,11 @@ import {
 } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
+import { DataPagination } from "@/components/shared/data-pagination";
+import {
+  CardGridSkeleton,
+  QueryErrorAlert,
+} from "@/components/shared/page-states";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,8 +38,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useMe } from "@/hooks/use-auth";
 import {
   useAdjustCustomerLoyalty,
@@ -51,11 +65,12 @@ export default function CustomersPage() {
     PERMISSIONS.CUSTOMER_MANAGE,
   );
 
+  const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
 
   const customersQuery = useCustomers(
-    { search, limit: 30 },
+    { search, page, limit: 20 },
     Boolean(profile),
   );
   const detailQuery = useCustomerDetail(selectedId, Boolean(selectedId));
@@ -113,7 +128,8 @@ export default function CustomersPage() {
     });
     if (!parsed.success) {
       setAdjustError(
-        parsed.error.issues[0]?.message ?? "Dữ liệu điều chỉnh điểm không hợp lệ",
+        parsed.error.issues[0]?.message ??
+          "Dữ liệu điều chỉnh điểm không hợp lệ",
       );
       return;
     }
@@ -133,6 +149,9 @@ export default function CustomersPage() {
     }
   }
 
+  const customers = customersQuery.data?.items ?? [];
+  const pagination = customersQuery.data?.pagination;
+
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
@@ -146,99 +165,142 @@ export default function CustomersPage() {
           </p>
         </div>
 
-        <Button type="button" onClick={() => setCreateOpen(true)}>
-          <PlusIcon data-icon="inline-start" />
-          Thêm khách hàng
-        </Button>
+        {canManageCustomers ? (
+          <Button type="button" onClick={() => setCreateOpen(true)}>
+            <PlusIcon data-icon="inline-start" />
+            Thêm khách hàng
+          </Button>
+        ) : null}
       </header>
 
       <div className="flex items-center gap-2 md:max-w-md">
         <SearchIcon className="size-4 text-muted-foreground" />
         <Input
+          aria-label="Tìm khách hàng theo tên, số điện thoại hoặc mã KH"
           placeholder="Tìm theo tên, số điện thoại, mã KH..."
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setPage(1);
+          }}
         />
       </div>
 
+      {customersQuery.isError ? (
+        <QueryErrorAlert
+          title="Không tải được danh sách khách hàng"
+          error={customersQuery.error}
+          onRetry={() => void customersQuery.refetch()}
+        />
+      ) : null}
+
       <div className="grid gap-4 lg:grid-cols-[1.2fr_1fr]">
         <div className="flex flex-col gap-2.5">
-          {(customersQuery.data?.items ?? []).map((cust) => (
-            <Card
-              key={cust.id}
-              className={selectedId === cust.id ? "border-primary" : undefined}
-            >
-              <CardHeader className="pb-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <CardTitle className="flex items-center gap-2 text-base">
-                      <UserCheckIcon className="size-4 text-primary" />
-                      {cust.name}
-                    </CardTitle>
-                    <CardDescription>
-                      <span className="font-mono">{cust.code}</span>
-                      {cust.phone ? ` · ${cust.phone}` : ""}
-                      {cust.email ? ` · ${cust.email}` : ""}
-                    </CardDescription>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge>{cust.loyaltyPoints} điểm</Badge>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setSelectedId(cust.id)}
-                    >
-                      Chi tiết
-                    </Button>
-                    {canManageCustomers ? (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => {
-                          setAdjustTarget(cust);
-                          setPointsDelta("10");
-                          setAdjustError(null);
-                          setAdjustOpen(true);
-                        }}
-                      >
-                        <AwardIcon data-icon="inline-start" />
-                        Chỉnh điểm
+          {customersQuery.isLoading ? (
+            <CardGridSkeleton count={3} columnsClass="flex flex-col gap-2.5" />
+          ) : customers.length === 0 ? (
+            <Card>
+              <CardContent className="pt-4">
+                <Empty>
+                  <EmptyHeader>
+                    <EmptyMedia variant="icon">
+                      <UserCheckIcon />
+                    </EmptyMedia>
+                    <EmptyTitle>Chưa có hồ sơ khách hàng</EmptyTitle>
+                    <EmptyDescription>
+                      Thêm khách hàng tại đây hoặc thêm nhanh ngay trên màn hình
+                      POS để bắt đầu tích điểm.
+                    </EmptyDescription>
+                  </EmptyHeader>
+                  {canManageCustomers ? (
+                    <EmptyContent>
+                      <Button type="button" onClick={() => setCreateOpen(true)}>
+                        <PlusIcon data-icon="inline-start" />
+                        Thêm khách hàng
                       </Button>
-                    ) : null}
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>
-                  Tổng chi tiêu:{" "}
-                  <strong className="font-mono text-foreground">
-                    {formatVndAmount(cust.totalSpent)}
-                  </strong>
-                </span>
-                <span>
-                  Công nợ:{" "}
-                  <strong className="font-mono">
-                    {formatVndAmount(cust.debtBalance)}
-                  </strong>
-                </span>
+                    </EmptyContent>
+                  ) : null}
+                </Empty>
               </CardContent>
             </Card>
-          ))}
+          ) : (
+            <>
+              {customers.map((cust) => (
+                <Card
+                  key={cust.id}
+                  className={
+                    selectedId === cust.id ? "border-primary" : undefined
+                  }
+                >
+                  <CardHeader className="pb-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <CardTitle className="flex items-center gap-2 text-base">
+                          <UserCheckIcon className="size-4 text-primary" />
+                          {cust.name}
+                        </CardTitle>
+                        <CardDescription>
+                          <span className="font-mono">{cust.code}</span>
+                          {cust.phone ? ` · ${cust.phone}` : ""}
+                          {cust.email ? ` · ${cust.email}` : ""}
+                        </CardDescription>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge>{cust.loyaltyPoints} điểm</Badge>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setSelectedId(cust.id)}
+                        >
+                          Chi tiết
+                        </Button>
+                        {canManageCustomers ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              setAdjustTarget(cust);
+                              setPointsDelta("10");
+                              setAdjustError(null);
+                              setAdjustOpen(true);
+                            }}
+                          >
+                            <AwardIcon data-icon="inline-start" />
+                            Chỉnh điểm
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>
+                      Tổng chi tiêu:{" "}
+                      <strong className="font-mono text-foreground tabular-nums">
+                        {formatVndAmount(cust.totalSpent)}
+                      </strong>
+                    </span>
+                    <span>
+                      Công nợ:{" "}
+                      <strong className="font-mono tabular-nums">
+                        {formatVndAmount(cust.debtBalance)}
+                      </strong>
+                    </span>
+                  </CardContent>
+                </Card>
+              ))}
 
-          {(customersQuery.data?.items ?? []).length === 0 ? (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">
-                  Chưa có hồ sơ khách hàng
-                </CardTitle>
-                <CardDescription>
-                  Thêm khách hàng tại đây hoặc thêm nhanh ngay trên màn hình POS.
-                </CardDescription>
-              </CardHeader>
-            </Card>
-          ) : null}
+              {pagination ? (
+                <DataPagination
+                  page={page}
+                  totalPages={pagination.totalPages}
+                  totalItems={pagination.total}
+                  onPageChange={setPage}
+                />
+              ) : null}
+            </>
+          )}
         </div>
 
         <Card>
@@ -251,7 +313,18 @@ export default function CustomersPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-2 text-sm">
-            {detailQuery.data ? (
+            {detailQuery.isLoading ? (
+              <div className="flex flex-col gap-2">
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+            ) : detailQuery.isError ? (
+              <QueryErrorAlert
+                title="Không tải được lịch sử khách hàng"
+                error={detailQuery.error}
+                onRetry={() => void detailQuery.refetch()}
+              />
+            ) : detailQuery.data ? (
               detailQuery.data.recentInvoices.length > 0 ? (
                 detailQuery.data.recentInvoices.map((inv) => (
                   <div
@@ -265,7 +338,7 @@ export default function CustomersPage() {
                         {new Date(inv.createdAt).toLocaleString("vi-VN")}
                       </div>
                     </div>
-                    <span className="font-mono font-semibold">
+                    <span className="font-mono font-semibold tabular-nums">
                       {formatVndAmount(inv.totalAmount)}
                     </span>
                   </div>
@@ -350,8 +423,8 @@ export default function CustomersPage() {
               Điều chỉnh điểm Loyalty — {adjustTarget?.name}
             </DialogTitle>
             <DialogDescription>
-              Điểm hiện tại: {adjustTarget?.loyaltyPoints ?? 0}. Nhập số dương để
-              cộng hoặc số âm để trừ (không âm dưới 0).
+              Điểm hiện tại: {adjustTarget?.loyaltyPoints ?? 0}. Nhập số dương
+              để cộng hoặc số âm để trừ (không âm dưới 0).
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleAdjustSubmit} className="flex flex-col gap-3">
@@ -392,7 +465,9 @@ export default function CustomersPage() {
                 Hủy
               </Button>
               <Button type="submit" disabled={adjustMutation.isPending}>
-                {adjustMutation.isPending ? "Đang lưu..." : "Xác nhận chỉnh điểm"}
+                {adjustMutation.isPending
+                  ? "Đang lưu..."
+                  : "Xác nhận chỉnh điểm"}
               </Button>
             </DialogFooter>
           </form>

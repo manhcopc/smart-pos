@@ -3,6 +3,9 @@
 import { cashierPinLoginSchema, ownerLoginSchema } from "@smart-pos/shared";
 import {
   AlertCircleIcon,
+  DeleteIcon,
+  EyeIcon,
+  EyeOffIcon,
   KeyRoundIcon,
   MailIcon,
   StoreIcon,
@@ -11,6 +14,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
+import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,6 +37,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useCashierPinLogin, useOwnerLogin } from "@/hooks/use-auth";
 import { formatApiError } from "@/lib/api-client";
 
+const PIN_KEYPAD_DIGITS = ["1", "2", "3", "4", "5", "6", "7", "8", "9"] as const;
+
 export default function LoginPage() {
   const router = useRouter();
   const ownerLoginMutation = useOwnerLogin();
@@ -40,11 +46,13 @@ export default function LoginPage() {
 
   const [ownerEmail, setOwnerEmail] = useState("");
   const [ownerPassword, setOwnerPassword] = useState("");
+  const [showOwnerPassword, setShowOwnerPassword] = useState(false);
   const [ownerTenantSlug, setOwnerTenantSlug] = useState("");
 
   const [tenantSlug, setTenantSlug] = useState("");
   const [employeeCode, setEmployeeCode] = useState("");
   const [pin, setPin] = useState("");
+  const [showTouchPad, setShowTouchPad] = useState(false);
 
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -111,7 +119,10 @@ export default function LoginPage() {
           <StoreIcon className="size-4 text-primary" />
           Smart-POS
         </Link>
-        <Badge variant="outline">Multi-Tenant Auth</Badge>
+        <div className="flex items-center gap-1.5">
+          <Badge variant="outline">Đăng nhập cửa hàng</Badge>
+          <ThemeToggle />
+        </div>
       </div>
 
       <Card>
@@ -157,14 +168,27 @@ export default function LoginPage() {
 
                   <Field>
                     <FieldLabel htmlFor="owner-password">Mật khẩu</FieldLabel>
-                    <Input
-                      id="owner-password"
-                      type="password"
-                      autoComplete="current-password"
-                      placeholder="••••••••"
-                      value={ownerPassword}
-                      onChange={(e) => setOwnerPassword(e.target.value)}
-                    />
+                    <div className="flex items-center gap-1.5">
+                      <Input
+                        id="owner-password"
+                        type={showOwnerPassword ? "text" : "password"}
+                        autoComplete="current-password"
+                        placeholder="••••••••"
+                        value={ownerPassword}
+                        onChange={(e) => setOwnerPassword(e.target.value)}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        aria-label={
+                          showOwnerPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"
+                        }
+                        onClick={() => setShowOwnerPassword((prev) => !prev)}
+                      >
+                        {showOwnerPassword ? <EyeOffIcon /> : <EyeIcon />}
+                      </Button>
+                    </div>
                   </Field>
 
                   <Field>
@@ -187,6 +211,7 @@ export default function LoginPage() {
 
                 <Button
                   type="submit"
+                  size="touch"
                   className="w-full"
                   disabled={ownerLoginMutation.isPending}
                 >
@@ -231,9 +256,19 @@ export default function LoginPage() {
                   </Field>
 
                   <Field>
-                    <FieldLabel htmlFor="cashier-pin">
-                      Mã PIN (4–8 số)
-                    </FieldLabel>
+                    <div className="flex items-center justify-between gap-2">
+                      <FieldLabel htmlFor="cashier-pin">
+                        Mã PIN (4–8 số)
+                      </FieldLabel>
+                      <Button
+                        type="button"
+                        size="xs"
+                        variant="ghost"
+                        onClick={() => setShowTouchPad((prev) => !prev)}
+                      >
+                        {showTouchPad ? "Ẩn bàn phím số" : "Bàn phím số chạm"}
+                      </Button>
+                    </div>
                     <Input
                       id="cashier-pin"
                       type="password"
@@ -246,8 +281,63 @@ export default function LoginPage() {
                   </Field>
                 </FieldGroup>
 
+                {showTouchPad ? (
+                  <div
+                    className="grid grid-cols-3 gap-2 rounded-lg border bg-muted/30 p-2.5"
+                    aria-label="Bàn phím số nhập PIN"
+                  >
+                    {PIN_KEYPAD_DIGITS.map((digit) => (
+                      <Button
+                        key={digit}
+                        type="button"
+                        variant="outline"
+                        size="touch"
+                        className="font-mono text-base font-semibold"
+                        onClick={() =>
+                          setPin((prev) =>
+                            prev.length < 8 ? `${prev}${digit}` : prev,
+                          )
+                        }
+                      >
+                        {digit}
+                      </Button>
+                    ))}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="touch"
+                      onClick={() => setPin("")}
+                    >
+                      Xóa hết
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="touch"
+                      className="font-mono text-base font-semibold"
+                      onClick={() =>
+                        setPin((prev) =>
+                          prev.length < 8 ? `${prev}0` : prev,
+                        )
+                      }
+                    >
+                      0
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="touch"
+                      aria-label="Xóa 1 chữ số PIN"
+                      onClick={() => setPin((prev) => prev.slice(0, -1))}
+                    >
+                      <DeleteIcon />
+                    </Button>
+                  </div>
+                ) : null}
+
                 <Button
                   type="submit"
+                  size="touch"
                   className="w-full"
                   disabled={cashierPinMutation.isPending}
                 >

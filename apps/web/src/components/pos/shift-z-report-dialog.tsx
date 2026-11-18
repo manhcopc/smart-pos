@@ -10,6 +10,7 @@ import {
 import { AlertCircleIcon, PrinterIcon } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
+import { QueryErrorAlert } from "@/components/shared/page-states";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,6 +24,7 @@ import {
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useCloseShift, useShiftZReport } from "@/hooks/use-pos";
 import { formatApiError } from "@/lib/api-client";
 import { formatVndAmount, PAYMENT_METHOD_LABELS } from "@/lib/labels";
@@ -117,7 +119,9 @@ export function ShiftZReportDialog({
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader className="pos-no-print">
           <DialogTitle>
-            {closedReport ? "Báo cáo Chốt ca (Z-Report)" : "Đóng ca & Đối soát két"}
+            {closedReport
+              ? "Báo cáo Chốt ca (Z-Report)"
+              : "Đóng ca & Đối soát két"}
           </DialogTitle>
           <DialogDescription>
             Kiểm đếm tiền mặt thực tế trong két để đối chiếu với doanh thu ca.
@@ -131,7 +135,13 @@ export function ShiftZReportDialog({
           </Alert>
         ) : null}
 
-        {report ? (
+        {zReportQuery.isError && !closedReport ? (
+          <QueryErrorAlert
+            title="Không tải được số liệu chốt ca"
+            error={zReportQuery.error}
+            onRetry={() => void zReportQuery.refetch()}
+          />
+        ) : report ? (
           <div className="pos-printable-receipt flex flex-col gap-3 rounded-lg border bg-card p-4 text-sm">
             <div className="flex flex-col gap-0.5 text-center">
               <span className="font-semibold uppercase">{shopName}</span>
@@ -145,27 +155,27 @@ export function ShiftZReportDialog({
 
             <div className="grid grid-cols-2 gap-1.5 text-xs">
               <span className="text-muted-foreground">Số hóa đơn</span>
-              <span className="text-right font-mono font-medium">
+              <span className="text-right font-mono font-medium tabular-nums">
                 {report.summary.invoiceCount}
               </span>
 
               <span className="text-muted-foreground">Doanh thu gộp</span>
-              <span className="text-right font-mono">
+              <span className="text-right font-mono tabular-nums">
                 {formatVndAmount(report.summary.grossSales)}
               </span>
 
               <span className="text-muted-foreground">Chiết khấu</span>
-              <span className="text-right font-mono">
+              <span className="text-right font-mono tabular-nums">
                 -{formatVndAmount(report.summary.discountTotal)}
               </span>
 
               <span className="text-muted-foreground">Thuế VAT</span>
-              <span className="text-right font-mono">
+              <span className="text-right font-mono tabular-nums">
                 {formatVndAmount(report.summary.taxTotal)}
               </span>
 
               <span className="font-medium">Doanh thu thuần</span>
-              <span className="text-right font-mono font-semibold">
+              <span className="text-right font-mono font-semibold tabular-nums">
                 {formatVndAmount(report.summary.netSales)}
               </span>
             </div>
@@ -181,7 +191,7 @@ export function ShiftZReportDialog({
                     <span className="text-muted-foreground">
                       {PAYMENT_METHOD_LABELS[method]}
                     </span>
-                    <span className="text-right font-mono">
+                    <span className="text-right font-mono tabular-nums">
                       {formatVndAmount(amount)}
                     </span>
                   </div>
@@ -193,24 +203,24 @@ export function ShiftZReportDialog({
 
             <div className="grid grid-cols-2 gap-1.5 text-xs">
               <span className="text-muted-foreground">Tiền đầu ca</span>
-              <span className="text-right font-mono">
+              <span className="text-right font-mono tabular-nums">
                 {formatVndAmount(report.shift.openingCash)}
               </span>
 
               <span className="font-medium">Tiền két lý thuyết</span>
-              <span className="text-right font-mono font-semibold">
+              <span className="text-right font-mono font-semibold tabular-nums">
                 {formatVndAmount(report.shift.expectedCash)}
               </span>
 
               {closedReport ? (
                 <>
                   <span className="font-medium">Tiền thực đếm</span>
-                  <span className="text-right font-mono font-semibold">
+                  <span className="text-right font-mono font-semibold tabular-nums">
                     {formatVndAmount(report.shift.actualCash ?? "0")}
                   </span>
                   <span className="font-medium">Chênh lệch ca</span>
                   <span
-                    className={`text-right font-mono font-semibold ${
+                    className={`text-right font-mono font-semibold tabular-nums ${
                       Number(report.shift.cashVariance ?? 0) !== 0
                         ? "text-destructive"
                         : ""
@@ -223,7 +233,10 @@ export function ShiftZReportDialog({
             </div>
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">Đang tải số liệu ca...</p>
+          <div className="flex flex-col gap-2 py-2">
+            <Skeleton className="h-24 w-full rounded-lg" />
+            <Skeleton className="h-16 w-full rounded-lg" />
+          </div>
         )}
 
         {!closedReport && report?.shift.status === "OPEN" ? (
@@ -275,6 +288,7 @@ export function ShiftZReportDialog({
               </Button>
               <Button
                 type="submit"
+                size="touch"
                 disabled={closeShiftMutation.isPending}
               >
                 {closeShiftMutation.isPending

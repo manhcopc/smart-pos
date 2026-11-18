@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
+import { QueryErrorAlert } from "@/components/shared/page-states";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   useCreateSalesReturn,
@@ -135,7 +137,9 @@ export function InvoiceActionsDialog({
       .filter((l) => Number(l.quantity) > 0);
 
     if (lines.length === 0) {
-      setErrorMsg("Vui lòng nhập số lượng trả lớn hơn 0 cho ít nhất 1 mặt hàng.");
+      setErrorMsg(
+        "Vui lòng nhập số lượng trả lớn hơn 0 cho ít nhất 1 mặt hàng.",
+      );
       return;
     }
 
@@ -201,21 +205,29 @@ export function InvoiceActionsDialog({
               ) : null}
             </DialogTitle>
             <DialogDescription>
-              Xử lý trả hàng một phần/toàn phần, hủy hóa đơn hoặc in lại bill nhiệt.
+              Xử lý trả hàng một phần/toàn phần, hủy hóa đơn hoặc in lại bill
+              nhiệt.
             </DialogDescription>
           </DialogHeader>
 
-          {detailQuery.isLoading ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">
-              Đang tải thông tin hóa đơn...
-            </p>
+          {detailQuery.isError ? (
+            <QueryErrorAlert
+              title="Không tải được chi tiết hóa đơn"
+              error={detailQuery.error}
+              onRetry={() => void detailQuery.refetch()}
+            />
+          ) : detailQuery.isLoading ? (
+            <div className="flex flex-col gap-3 py-2">
+              <Skeleton className="h-14 w-full rounded-lg" />
+              <Skeleton className="h-32 w-full rounded-lg" />
+            </div>
           ) : detail ? (
             <div className="flex flex-col gap-4">
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/20 p-3 text-sm">
                 <div>
                   <div>
                     Thu ngân: <strong>{detail.cashierName}</strong> · Tổng:{" "}
-                    <strong className="font-mono">
+                    <strong className="font-mono tabular-nums">
                       {formatVndAmount(detail.totalAmount)}
                     </strong>
                   </div>
@@ -238,7 +250,7 @@ export function InvoiceActionsDialog({
               </div>
 
               {!canRefundDirect ? (
-                <div className="flex items-center justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-warning/50 bg-warning/15 px-3 py-2 text-xs text-foreground">
                   <span>
                     {approverName
                       ? `Đã mở khóa bằng PIN Quản lý: ${approverName}`
@@ -311,7 +323,7 @@ export function InvoiceActionsDialog({
                               </div>
                               <Input
                                 aria-label={`SL trả ${item.sku}`}
-                                className="h-8 w-24 font-mono text-right"
+                                className="h-9 w-24 text-right font-mono tabular-nums"
                                 value={returnQuantities[item.id] ?? "0"}
                                 disabled={remaining <= 0}
                                 onChange={(e) =>
@@ -341,9 +353,13 @@ export function InvoiceActionsDialog({
                               }
                             }}
                           >
-                            <SelectTrigger id="ret-method">
+                            <SelectTrigger id="ret-method" className="w-full">
                               <SelectValue>
-                                {PAYMENT_METHOD_LABELS[refundMethod as PaymentMethod]}
+                                {
+                                  PAYMENT_METHOD_LABELS[
+                                    refundMethod as PaymentMethod
+                                  ]
+                                }
                               </SelectValue>
                             </SelectTrigger>
                             <SelectContent>
@@ -374,6 +390,7 @@ export function InvoiceActionsDialog({
 
                       <Button
                         type="submit"
+                        size="touch"
                         disabled={returnMutation.isPending}
                       >
                         {returnMutation.isPending
@@ -399,7 +416,7 @@ export function InvoiceActionsDialog({
                             {PAYMENT_METHOD_LABELS[sr.refundMethod]} ·{" "}
                             {sr.reason}
                           </div>
-                          <span className="font-mono font-semibold text-destructive">
+                          <span className="font-mono font-semibold text-destructive tabular-nums">
                             -{formatVndAmount(sr.totalRefundAmount)}
                           </span>
                         </div>
@@ -429,6 +446,7 @@ export function InvoiceActionsDialog({
                     </FieldGroup>
                     <Button
                       type="submit"
+                      size="touch"
                       variant="destructive"
                       disabled={voidMutation.isPending}
                     >

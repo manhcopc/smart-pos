@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  type CategoryItem,
   createCategorySchema,
   createProductSchema,
   PERMISSIONS,
@@ -12,7 +13,9 @@ import {
   BoxesIcon,
   DownloadIcon,
   FolderPlusIcon,
+  ImageIcon,
   ImagePlusIcon,
+  PencilIcon,
   PlusIcon,
   SearchIcon,
   Trash2Icon,
@@ -20,6 +23,13 @@ import {
 } from "lucide-react";
 import { useState, type ChangeEvent, type FormEvent } from "react";
 import { toast } from "sonner";
+import { ProductEditDialog } from "@/components/products/product-edit-dialog";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { DataPagination } from "@/components/shared/data-pagination";
+import {
+  CardGridSkeleton,
+  QueryErrorAlert,
+} from "@/components/shared/page-states";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,6 +40,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -38,6 +49,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import {
   Field,
   FieldDescription,
@@ -54,6 +73,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { useMe } from "@/hooks/use-auth";
 import {
   useCategories,
@@ -66,6 +93,7 @@ import {
   useUpdateProduct,
 } from "@/hooks/use-catalog";
 import { apiDownloadFile, formatApiError } from "@/lib/api-client";
+import { isMockDataMode } from "@/lib/data-mode";
 import { compressImageToWebP } from "@/lib/image-webp";
 import { formatVndAmount } from "@/lib/labels";
 
@@ -102,6 +130,7 @@ export default function ProductsPage() {
   const defaultBranchId =
     branches.find((b) => b.isDefault)?.id ?? branches[0]?.id ?? "";
 
+  const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("ALL");
   const [branchFilter, setBranchFilter] = useState<string>("");
@@ -112,8 +141,8 @@ export default function ProductsPage() {
   const categoriesQuery = useCategories(Boolean(profile));
   const productsQuery = useProducts(
     {
-      page: 1,
-      limit: 50,
+      page,
+      limit: 30,
       search,
       categoryId: categoryFilter === "ALL" ? undefined : categoryFilter,
       branchId: effectiveBranchId || undefined,
@@ -129,13 +158,16 @@ export default function ProductsPage() {
   const presignMutation = usePresignProductImage();
   const importMutation = useImportCatalog();
 
-  // Category dialog state
   const [catDialogOpen, setCatDialogOpen] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [catError, setCatError] = useState<string | null>(null);
+  const [pendingDeleteCategory, setPendingDeleteCategory] =
+    useState<CategoryItem | null>(null);
 
-  // Create Product dialog state
   const [productDialogOpen, setProductDialogOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<ProductItem | null>(
+    null,
+  );
   const [prodName, setProdName] = useState("");
   const [prodBrand, setProdBrand] = useState("");
   const [prodCategoryId, setProdCategoryId] = useState<string>("NONE");
@@ -145,7 +177,6 @@ export default function ProductsPage() {
   const [variants, setVariants] = useState<VariantDraft[]>([emptyVariantDraft()]);
   const [prodError, setProdError] = useState<string | null>(null);
 
-  // Import dialog state
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importResultSummary, setImportResultSummary] = useState<string | null>(
@@ -177,13 +208,15 @@ export default function ProductsPage() {
         fileSizeBytes: compressed.sizeBytes,
       });
 
-      const putRes = await fetch(presigned.uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": compressed.contentType },
-        body: compressed.blob,
-      });
-      if (!putRes.ok) {
-        throw new Error(`Upload ảnh thất bại (${putRes.status})`);
+      if (!isMockDataMode()) {
+        const putRes = await fetch(presigned.uploadUrl, {
+          method: "PUT",
+          headers: { "Content-Type": compressed.contentType },
+          body: compressed.blob,
+        });
+        if (!putRes.ok) {
+          throw new Error(`Upload ảnh thất bại (${putRes.status})`);
+        }
       }
 
       setProdImageUrl(presigned.publicUrl);
@@ -247,7 +280,9 @@ export default function ProductsPage() {
 
     const parsed = createCategorySchema.safeParse({ name: newCategoryName });
     if (!parsed.success) {
-      setCatError(parsed.error.issues[0]?.message ?? "Tên nhóm hàng không hợp lệ");
+      setCatError(
+        parsed.error.issues[0]?.message ?? "Tên nhóm hàng không hợp lệ",
+      );
       return;
     }
 
@@ -257,6 +292,17 @@ export default function ProductsPage() {
       toast.success("Đã tạo nhóm hàng");
     } catch (error) {
       setCatError(formatApiError(error, "Không thể tạo nhóm hàng."));
+    }
+  }
+
+  async function handleConfirmDeleteCategory() {
+    if (!pendingDeleteCategory) return;
+    try {
+      await deleteCategoryMutation.mutateAsync(pendingDeleteCategory.id);
+      toast.success(`Đã xóa nhóm hàng "${pendingDeleteCategory.name}"`);
+      setPendingDeleteCategory(null);
+    } catch (err) {
+      toast.error(formatApiError(err, "Không thể xóa nhóm hàng."));
     }
   }
 
@@ -312,6 +358,7 @@ export default function ProductsPage() {
       : categories.find((c) => c.id === categoryFilter)?.name ?? "Nhóm hàng";
   const selectedBranch = branches.find((b) => b.id === effectiveBranchId);
   const products = productsQuery.data?.items ?? [];
+  const pagination = productsQuery.data?.pagination;
   const quota = productsQuery.data?.quota;
 
   return (
@@ -384,14 +431,20 @@ export default function ProductsPage() {
               aria-label="Tìm theo tên hàng, thương hiệu, SKU, mã vạch"
               placeholder="Tìm tên hàng, SKU hoặc quét mã vạch..."
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
             />
           </div>
 
           <Select
             value={categoryFilter}
             onValueChange={(value) => {
-              if (value) setCategoryFilter(value);
+              if (value) {
+                setCategoryFilter(value);
+                setPage(1);
+              }
             }}
           >
             <SelectTrigger className="w-48">
@@ -413,7 +466,10 @@ export default function ProductsPage() {
             <Select
               value={effectiveBranchId}
               onValueChange={(value) => {
-                if (value) setBranchFilter(value);
+                if (value) {
+                  setBranchFilter(value);
+                  setPage(1);
+                }
               }}
             >
               <SelectTrigger className="w-52">
@@ -435,120 +491,174 @@ export default function ProductsPage() {
             </Select>
           ) : null}
 
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
+          <Field orientation="horizontal" className="w-auto">
+            <Checkbox
+              id="prod-low-stock"
               checked={lowStockOnly}
-              onChange={(e) => setLowStockOnly(e.target.checked)}
+              onCheckedChange={(checked) => {
+                setLowStockOnly(Boolean(checked));
+                setPage(1);
+              }}
             />
-            <span>Dưới tồn tối thiểu</span>
-          </label>
+            <FieldLabel htmlFor="prod-low-stock" className="font-normal">
+              Dưới tồn tối thiểu
+            </FieldLabel>
+          </Field>
         </CardContent>
       </Card>
 
       {productsQuery.isError ? (
-        <Alert variant="destructive">
-          <AlertCircleIcon />
-          <AlertTitle>Không tải được danh mục</AlertTitle>
-          <AlertDescription>{formatApiError(productsQuery.error)}</AlertDescription>
-        </Alert>
+        <QueryErrorAlert
+          title="Không tải được danh mục"
+          error={productsQuery.error}
+          onRetry={() => void productsQuery.refetch()}
+        />
       ) : null}
 
-      {products.length === 0 && !productsQuery.isLoading ? (
+      {productsQuery.isLoading ? (
+        <CardGridSkeleton count={3} columnsClass="grid gap-4" />
+      ) : products.length === 0 ? (
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <BoxesIcon className="size-4 text-muted-foreground" />
-              Chưa có sản phẩm phù hợp
-            </CardTitle>
-            <CardDescription>
-              Bấm &ldquo;Thêm sản phẩm&rdquo; hoặc import từ tệp Excel/CSV theo
-              template chuẩn để khởi tạo danh mục.
-            </CardDescription>
-          </CardHeader>
-        </Card>
-      ) : null}
-
-      <div className="grid gap-4">
-        {products.map((product) => (
-          <Card key={product.id}>
-            <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
-              <div className="flex flex-col gap-1">
-                <CardTitle className="text-base">{product.name}</CardTitle>
-                <CardDescription>
-                  {product.categoryName ?? "Chưa phân nhóm"}
-                  {product.brand ? ` · ${product.brand}` : ""} ·{" "}
-                  {product.variants.length} biến thể
-                </CardDescription>
-              </div>
-              <div className="flex items-center gap-2">
-                <Badge variant={product.isActive ? "secondary" : "outline"}>
-                  {product.isActive ? "Đang bán" : "Tạm ngưng"}
-                </Badge>
-                {canManage ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleToggleProductActive(product)}
-                  >
-                    {product.isActive ? "Ngưng bán" : "Mở bán"}
+          <CardContent className="pt-4">
+            <Empty>
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <BoxesIcon />
+                </EmptyMedia>
+                <EmptyTitle>Chưa có sản phẩm phù hợp</EmptyTitle>
+                <EmptyDescription>
+                  Bấm &ldquo;Thêm sản phẩm&rdquo; hoặc import từ tệp Excel/CSV
+                  theo template chuẩn để khởi tạo danh mục.
+                </EmptyDescription>
+              </EmptyHeader>
+              {canManage ? (
+                <EmptyContent>
+                  <Button onClick={openProductDialog}>
+                    <PlusIcon data-icon="inline-start" />
+                    Thêm sản phẩm mới
                   </Button>
-                ) : null}
-              </div>
-            </CardHeader>
-            <CardContent className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead>
-                  <tr className="border-b text-xs text-muted-foreground">
-                    <th className="py-2 pr-3">SKU</th>
-                    <th className="py-2 pr-3">Tên biến thể</th>
-                    <th className="py-2 pr-3">Barcode</th>
-                    <th className="py-2 pr-3">ĐVT</th>
-                    <th className="py-2 pr-3 text-right">Giá vốn</th>
-                    <th className="py-2 pr-3 text-right">Giá bán</th>
-                    <th className="py-2 text-right">Tồn kho</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {product.variants.map((variant) => (
-                    <tr key={variant.id} className="border-b last:border-b-0">
-                      <td className="py-2 pr-3 font-mono text-xs">
-                        {variant.sku}
-                      </td>
-                      <td className="py-2 pr-3 font-medium">{variant.name}</td>
-                      <td className="py-2 pr-3 font-mono text-xs text-muted-foreground">
-                        {variant.barcode ?? "—"}
-                      </td>
-                      <td className="py-2 pr-3">{variant.unit}</td>
-                      <td className="py-2 pr-3 text-right font-mono">
-                        {formatVndAmount(variant.costPrice)}
-                      </td>
-                      <td className="py-2 pr-3 text-right font-mono font-medium">
-                        {formatVndAmount(variant.salePrice)}
-                      </td>
-                      <td className="py-2 text-right font-mono">
-                        {variant.branchStock ? (
-                          <span
-                            className={
-                              variant.branchStock.isLowStock
-                                ? "font-semibold text-destructive"
-                                : ""
-                            }
-                          >
-                            {variant.branchStock.onHand}
-                          </span>
-                        ) : (
-                          "—"
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+                </EmptyContent>
+              ) : null}
+            </Empty>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid gap-4">
+          {products.map((product) => (
+            <Card key={product.id}>
+              <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  {product.imageUrl ? (
+                    <img
+                      src={product.imageUrl}
+                      alt={product.name}
+                      loading="lazy"
+                      className="size-12 shrink-0 rounded-lg border object-cover"
+                    />
+                  ) : (
+                    <div className="flex size-12 shrink-0 items-center justify-center rounded-lg border bg-muted text-muted-foreground">
+                      <ImageIcon className="size-5" aria-hidden="true" />
+                    </div>
+                  )}
+                  <div className="flex flex-col gap-1">
+                    <CardTitle className="text-base">{product.name}</CardTitle>
+                    <CardDescription>
+                      {product.categoryName ?? "Chưa phân nhóm"}
+                      {product.brand ? ` · ${product.brand}` : ""} ·{" "}
+                      {product.variants.length} biến thể
+                    </CardDescription>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant={product.isActive ? "secondary" : "outline"}>
+                    {product.isActive ? "Đang bán" : "Tạm ngưng"}
+                  </Badge>
+                  {canManage ? (
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setEditingProduct(product)}
+                      >
+                        <PencilIcon data-icon="inline-start" />
+                        Chỉnh sửa
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleToggleProductActive(product)}
+                      >
+                        {product.isActive ? "Ngưng bán" : "Mở bán"}
+                      </Button>
+                    </>
+                  ) : null}
+                </div>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow className="text-xs text-muted-foreground">
+                      <TableHead>SKU</TableHead>
+                      <TableHead>Tên biến thể</TableHead>
+                      <TableHead>Barcode</TableHead>
+                      <TableHead>ĐVT</TableHead>
+                      <TableHead className="text-right">Giá vốn</TableHead>
+                      <TableHead className="text-right">Giá bán</TableHead>
+                      <TableHead className="text-right">Tồn kho</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {product.variants.map((variant) => (
+                      <TableRow key={variant.id}>
+                        <TableCell className="font-mono text-xs">
+                          {variant.sku}
+                        </TableCell>
+                        <TableCell className="font-medium">
+                          {variant.name}
+                        </TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground">
+                          {variant.barcode ?? "—"}
+                        </TableCell>
+                        <TableCell>{variant.unit}</TableCell>
+                        <TableCell className="text-right font-mono tabular-nums">
+                          {formatVndAmount(variant.costPrice)}
+                        </TableCell>
+                        <TableCell className="text-right font-mono font-medium tabular-nums">
+                          {formatVndAmount(variant.salePrice)}
+                        </TableCell>
+                        <TableCell className="text-right font-mono tabular-nums">
+                          {variant.branchStock ? (
+                            <span
+                              className={
+                                variant.branchStock.isLowStock
+                                  ? "font-semibold text-destructive"
+                                  : ""
+                              }
+                            >
+                              {variant.branchStock.onHand}
+                            </span>
+                          ) : (
+                            "—"
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          ))}
+
+          {pagination ? (
+            <DataPagination
+              page={page}
+              totalPages={pagination.totalPages}
+              totalItems={pagination.total}
+              onPageChange={setPage}
+            />
+          ) : null}
+        </div>
+      )}
 
       {/* Create Product Dialog */}
       <Dialog open={productDialogOpen} onOpenChange={setProductDialogOpen}>
@@ -556,7 +666,8 @@ export default function ProductsPage() {
           <DialogHeader>
             <DialogTitle>Thêm sản phẩm mới</DialogTitle>
             <DialogDescription>
-              Hỗ trợ 1 hoặc nhiều biến thể SKU (màu sắc, kích cỡ) và ảnh nén WebP.
+              Hỗ trợ 1 hoặc nhiều biến thể SKU (màu sắc, kích cỡ) và ảnh nén
+              WebP.
             </DialogDescription>
           </DialogHeader>
 
@@ -700,7 +811,9 @@ export default function ProductsPage() {
                   </Field>
 
                   <Field>
-                    <FieldLabel htmlFor={`v-name-${idx}`}>Tên biến thể</FieldLabel>
+                    <FieldLabel htmlFor={`v-name-${idx}`}>
+                      Tên biến thể
+                    </FieldLabel>
                     <Input
                       id={`v-name-${idx}`}
                       placeholder="Đen - Size L"
@@ -783,7 +896,9 @@ export default function ProductsPage() {
                   </Field>
 
                   <Field>
-                    <FieldLabel htmlFor={`v-min-${idx}`}>Tồn tối thiểu</FieldLabel>
+                    <FieldLabel htmlFor={`v-min-${idx}`}>
+                      Tồn tối thiểu
+                    </FieldLabel>
                     <Input
                       id={`v-min-${idx}`}
                       type="number"
@@ -806,14 +921,15 @@ export default function ProductsPage() {
                       <Button
                         type="button"
                         variant="ghost"
-                        size="sm"
+                        size="icon-sm"
+                        aria-label={`Xóa biến thể ${idx + 1}`}
                         onClick={() =>
                           setVariants((prev) =>
                             prev.filter((_, i) => i !== idx),
                           )
                         }
                       >
-                        <Trash2Icon className="size-4 text-destructive" />
+                        <Trash2Icon className="text-destructive" />
                       </Button>
                     ) : null}
                   </div>
@@ -842,6 +958,15 @@ export default function ProductsPage() {
         </DialogContent>
       </Dialog>
 
+      <ProductEditDialog
+        product={editingProduct}
+        categories={categories}
+        open={Boolean(editingProduct)}
+        onOpenChange={(open) => {
+          if (!open) setEditingProduct(null);
+        }}
+      />
+
       {/* Category Dialog */}
       <Dialog open={catDialogOpen} onOpenChange={setCatDialogOpen}>
         <DialogContent>
@@ -862,6 +987,7 @@ export default function ProductsPage() {
 
             <div className="flex gap-2">
               <Input
+                aria-label="Tên nhóm hàng mới"
                 placeholder="Tên nhóm hàng mới..."
                 value={newCategoryName}
                 onChange={(e) => setNewCategoryName(e.target.value)}
@@ -889,22 +1015,27 @@ export default function ProductsPage() {
                   variant="ghost"
                   size="icon-sm"
                   aria-label={`Xóa ${cat.name}`}
-                  onClick={async () => {
-                    try {
-                      await deleteCategoryMutation.mutateAsync(cat.id);
-                      toast.success("Đã xóa nhóm hàng");
-                    } catch (err) {
-                      toast.error(formatApiError(err));
-                    }
-                  }}
+                  onClick={() => setPendingDeleteCategory(cat)}
                 >
-                  <Trash2Icon className="size-4 text-destructive" />
+                  <Trash2Icon className="text-destructive" />
                 </Button>
               </div>
             ))}
           </div>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={Boolean(pendingDeleteCategory)}
+        onOpenChange={(open) => {
+          if (!open) setPendingDeleteCategory(null);
+        }}
+        title={`Xóa nhóm hàng "${pendingDeleteCategory?.name ?? ""}"?`}
+        description="Các sản phẩm thuộc nhóm này sẽ chuyển về trạng thái chưa phân nhóm."
+        confirmLabel="Xóa nhóm hàng"
+        isPending={deleteCategoryMutation.isPending}
+        onConfirm={handleConfirmDeleteCategory}
+      />
 
       {/* Import Catalog Dialog */}
       <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>

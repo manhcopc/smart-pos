@@ -9,6 +9,7 @@ import StockCountsPage from "../(dashboard)/dashboard/stock-counts/page";
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
   usePathname: () => "/dashboard/products",
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 function jsonResponse(body: unknown, status = 200): Response {

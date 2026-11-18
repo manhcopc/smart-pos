@@ -16,6 +16,8 @@ import {
   Trash2Icon,
   WrenchIcon,
 } from "lucide-react";
+import { useState } from "react";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -115,194 +117,216 @@ export function OfflineQueueDialog({
   onResolveEntry,
   onDiscardEntry,
 }: OfflineQueueDialogProps) {
+  const [pendingDiscardEntry, setPendingDiscardEntry] =
+    useState<QueuedOfflineInvoice | null>(null);
   const pendingOrFailed = entries.filter((e) => e.status !== "CONFLICT");
   const conflictCount = entries.filter((e) => e.status === "CONFLICT").length;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <CloudOffIcon className="size-5" />
-            Hàng đợi hóa đơn Offline ({entries.length})
-          </DialogTitle>
-          <DialogDescription>
-            Hóa đơn tạo khi mất mạng được lưu an toàn trong IndexedDB và tự động
-            đồng bộ lại khi kết nối khôi phục.
-          </DialogDescription>
-        </DialogHeader>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CloudOffIcon className="size-5" />
+              Hàng đợi hóa đơn Offline ({entries.length})
+            </DialogTitle>
+            <DialogDescription>
+              Hóa đơn tạo khi mất mạng được lưu an toàn trong trình duyệt và tự
+              động đồng bộ lại khi kết nối khôi phục.
+            </DialogDescription>
+          </DialogHeader>
 
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/30 p-3">
-          <div className="flex items-center gap-2 text-xs">
-            <Badge variant={isOnline ? "secondary" : "destructive"}>
-              {isOnline ? "Đã có mạng" : "Đang Offline"}
-            </Badge>
-            {conflictCount > 0 ? (
-              <Badge variant="destructive">
-                {conflictCount} đơn xung đột cần xử lý
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/30 p-3">
+            <div className="flex items-center gap-2 text-xs">
+              <Badge variant={isOnline ? "secondary" : "destructive"}>
+                {isOnline ? "Đã có mạng" : "Đang Offline"}
               </Badge>
-            ) : null}
+              {conflictCount > 0 ? (
+                <Badge variant="destructive">
+                  {conflictCount} đơn xung đột cần xử lý
+                </Badge>
+              ) : null}
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              disabled={!isOnline || isSyncing || pendingOrFailed.length === 0}
+              onClick={() => void onSyncEntries(pendingOrFailed)}
+            >
+              <RefreshCwIcon data-icon="inline-start" />
+              {isSyncing
+                ? "Đang đồng bộ..."
+                : `Đồng bộ ${pendingOrFailed.length} đơn`}
+            </Button>
           </div>
-          <Button
-            type="button"
-            size="sm"
-            disabled={!isOnline || isSyncing || pendingOrFailed.length === 0}
-            onClick={() => void onSyncEntries(pendingOrFailed)}
-          >
-            <RefreshCwIcon data-icon="inline-start" />
-            {isSyncing
-              ? "Đang đồng bộ..."
-              : `Đồng bộ ${pendingOrFailed.length} đơn`}
-          </Button>
-        </div>
 
-        {entries.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 py-8 text-center text-sm text-muted-foreground">
-            <CheckCircle2Icon className="size-8 text-primary" />
-            <p>Tất cả hóa đơn đã được đồng bộ lên máy chủ.</p>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {entries.map((entry) => {
-              const isStockConflict =
-                entry.status === "CONFLICT" &&
-                entry.errorCode === ERROR_CODES.INSUFFICIENT_STOCK;
-              const isShiftConflict =
-                entry.status === "CONFLICT" &&
-                (entry.errorCode === ERROR_CODES.SHIFT_NOT_OPEN ||
-                  entry.errorCode === ERROR_CODES.SHIFT_NOT_FOUND);
-              const clampedPreview = isStockConflict
-                ? buildClampedOfflineEntry(entry)
-                : null;
+          {entries.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 py-8 text-center text-sm text-muted-foreground">
+              <CheckCircle2Icon className="size-8 text-primary" />
+              <p>Tất cả hóa đơn đã được đồng bộ lên máy chủ.</p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {entries.map((entry) => {
+                const isStockConflict =
+                  entry.status === "CONFLICT" &&
+                  entry.errorCode === ERROR_CODES.INSUFFICIENT_STOCK;
+                const isShiftConflict =
+                  entry.status === "CONFLICT" &&
+                  (entry.errorCode === ERROR_CODES.SHIFT_NOT_OPEN ||
+                    entry.errorCode === ERROR_CODES.SHIFT_NOT_FOUND);
+                const clampedPreview = isStockConflict
+                  ? buildClampedOfflineEntry(entry)
+                  : null;
 
-              return (
-                <div
-                  key={entry.idempotencyKey}
-                  className="flex flex-col gap-2.5 rounded-lg border bg-card p-3"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-sm font-semibold">
-                        {entry.localReceiptCode}
+                return (
+                  <div
+                    key={entry.idempotencyKey}
+                    className="flex flex-col gap-2.5 rounded-lg border bg-card p-3"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-sm font-semibold">
+                          {entry.localReceiptCode}
+                        </span>
+                        <Badge
+                          variant={
+                            entry.status === "CONFLICT" ||
+                            entry.status === "FAILED"
+                              ? "destructive"
+                              : "secondary"
+                          }
+                        >
+                          {entry.status === "CONFLICT"
+                            ? "Xung đột"
+                            : entry.status === "FAILED"
+                              ? "Lỗi gửi"
+                              : "Chờ đồng bộ"}
+                        </Badge>
+                      </div>
+                      <span className="font-mono text-sm font-semibold text-primary tabular-nums">
+                        {formatVndAmount(entry.totalAmount)}
                       </span>
-                      <Badge
-                        variant={
-                          entry.status === "CONFLICT" ||
-                          entry.status === "FAILED"
-                            ? "destructive"
-                            : "secondary"
-                        }
-                      >
-                        {entry.status === "CONFLICT"
-                          ? "Xung đột"
-                          : entry.status === "FAILED"
-                            ? "Lỗi gửi"
-                            : "Chờ đồng bộ"}
-                      </Badge>
                     </div>
-                    <span className="font-mono text-sm font-semibold text-primary">
-                      {formatVndAmount(entry.totalAmount)}
-                    </span>
-                  </div>
 
-                  <div className="text-xs text-muted-foreground">
-                    Lưu lúc:{" "}
-                    {new Date(entry.queuedAt).toLocaleString("vi-VN")} ·{" "}
-                    {entry.itemSummaries
-                      .map((it) => `${it.sku} x${Number(it.quantity)}`)
-                      .join(", ")}
-                  </div>
+                    <div className="text-xs text-muted-foreground">
+                      Lưu lúc:{" "}
+                      {new Date(entry.queuedAt).toLocaleString("vi-VN")} ·{" "}
+                      {entry.itemSummaries
+                        .map((it) => `${it.sku} x${Number(it.quantity)}`)
+                        .join(", ")}
+                    </div>
 
-                  {entry.status !== "PENDING" && entry.errorMessage ? (
-                    <Alert variant="destructive">
-                      <AlertTriangleIcon />
-                      <AlertTitle>
-                        {entry.errorCode ?? "Cần kiểm tra"}
-                      </AlertTitle>
-                      <AlertDescription className="flex flex-col gap-1">
-                        <span>{entry.errorMessage}</span>
-                        {entry.latestStock && entry.latestStock.length > 0 ? (
-                          <span className="font-mono text-xs">
-                            Tồn kho máy chủ:{" "}
-                            {entry.latestStock
-                              .map(
-                                (s) => `${s.sku}: còn ${Number(s.available)}`,
-                              )
-                              .join(" | ")}
-                          </span>
-                        ) : null}
-                      </AlertDescription>
-                    </Alert>
-                  ) : null}
-
-                  <div className="flex flex-wrap items-center justify-end gap-2">
-                    {isStockConflict && clampedPreview ? (
-                      <Button
-                        type="button"
-                        size="sm"
-                        disabled={!isOnline || isSyncing}
-                        onClick={() => void onResolveEntry(clampedPreview)}
-                      >
-                        <WrenchIcon data-icon="inline-start" />
-                        Khớp tồn kho ({formatVndAmount(clampedPreview.totalAmount)}) & Gửi lại
-                      </Button>
+                    {entry.status !== "PENDING" && entry.errorMessage ? (
+                      <Alert variant="destructive">
+                        <AlertTriangleIcon />
+                        <AlertTitle>
+                          {entry.errorCode ?? "Cần kiểm tra"}
+                        </AlertTitle>
+                        <AlertDescription className="flex flex-col gap-1">
+                          <span>{entry.errorMessage}</span>
+                          {entry.latestStock && entry.latestStock.length > 0 ? (
+                            <span className="font-mono text-xs">
+                              Tồn kho máy chủ:{" "}
+                              {entry.latestStock
+                                .map(
+                                  (s) => `${s.sku}: còn ${Number(s.available)}`,
+                                )
+                                .join(" | ")}
+                            </span>
+                          ) : null}
+                        </AlertDescription>
+                      </Alert>
                     ) : null}
 
-                    {isShiftConflict && currentShiftId ? (
-                      <Button
-                        type="button"
-                        size="sm"
-                        disabled={!isOnline || isSyncing}
-                        onClick={() =>
-                          void onResolveEntry({
-                            ...entry,
-                            shiftId: currentShiftId,
-                            status: "PENDING",
-                            errorCode: undefined,
-                            errorMessage: undefined,
-                            payload: {
-                              ...entry.payload,
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      {isStockConflict && clampedPreview ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={!isOnline || isSyncing}
+                          onClick={() => void onResolveEntry(clampedPreview)}
+                        >
+                          <WrenchIcon data-icon="inline-start" />
+                          Khớp tồn kho (
+                          {formatVndAmount(clampedPreview.totalAmount)}) &amp;
+                          Gửi lại
+                        </Button>
+                      ) : null}
+
+                      {isShiftConflict && currentShiftId ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={!isOnline || isSyncing}
+                          onClick={() =>
+                            void onResolveEntry({
+                              ...entry,
                               shiftId: currentShiftId,
-                            },
-                          })
-                        }
-                      >
-                        <WrenchIcon data-icon="inline-start" />
-                        Chuyển sang ca đang mở & Gửi lại
-                      </Button>
-                    ) : null}
+                              status: "PENDING",
+                              errorCode: undefined,
+                              errorMessage: undefined,
+                              payload: {
+                                ...entry.payload,
+                                shiftId: currentShiftId,
+                              },
+                            })
+                          }
+                        >
+                          <WrenchIcon data-icon="inline-start" />
+                          Chuyển sang ca đang mở &amp; Gửi lại
+                        </Button>
+                      ) : null}
 
-                    {entry.status !== "CONFLICT" ? (
+                      {entry.status !== "CONFLICT" ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={!isOnline || isSyncing}
+                          onClick={() => void onSyncEntries([entry])}
+                        >
+                          <RefreshCwIcon data-icon="inline-start" />
+                          Thử đồng bộ
+                        </Button>
+                      ) : null}
+
                       <Button
                         type="button"
                         size="sm"
-                        variant="outline"
-                        disabled={!isOnline || isSyncing}
-                        onClick={() => void onSyncEntries([entry])}
+                        variant="ghost"
+                        className="text-destructive"
+                        disabled={isSyncing}
+                        onClick={() => setPendingDiscardEntry(entry)}
                       >
-                        <RefreshCwIcon data-icon="inline-start" />
-                        Thử đồng bộ
+                        <Trash2Icon data-icon="inline-start" />
+                        Hủy đơn hàng đợi
                       </Button>
-                    ) : null}
-
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      className="text-destructive"
-                      disabled={isSyncing}
-                      onClick={() => void onDiscardEntry(entry.idempotencyKey)}
-                    >
-                      <Trash2Icon data-icon="inline-start" />
-                      Hủy đơn hàng đợi
-                    </Button>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
+                );
+              })}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <ConfirmDialog
+        open={Boolean(pendingDiscardEntry)}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) setPendingDiscardEntry(null);
+        }}
+        title={`Hủy hóa đơn offline ${pendingDiscardEntry?.localReceiptCode ?? ""}?`}
+        description="Hóa đơn chưa đồng bộ này sẽ bị xóa khỏi hàng đợi trên máy và không được ghi nhận doanh thu lên máy chủ."
+        confirmLabel="Xóa khỏi hàng đợi"
+        isPending={isSyncing}
+        onConfirm={async () => {
+          if (!pendingDiscardEntry) return;
+          await onDiscardEntry(pendingDiscardEntry.idempotencyKey);
+          setPendingDiscardEntry(null);
+        }}
+      />
+    </>
   );
 }

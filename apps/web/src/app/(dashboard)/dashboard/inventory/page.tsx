@@ -5,14 +5,18 @@ import {
   type InventoryMovementType,
 } from "@smart-pos/shared";
 import {
-  AlertCircleIcon,
   AlertTriangleIcon,
   HistoryIcon,
   SearchIcon,
   WarehouseIcon,
 } from "lucide-react";
-import { useState } from "react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { DataPagination } from "@/components/shared/data-pagination";
+import {
+  QueryErrorAlert,
+  TableRowsSkeleton,
+} from "@/components/shared/page-states";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -21,6 +25,15 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -30,13 +43,24 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useMe } from "@/hooks/use-auth";
 import { useInventory, useInventoryLedgers } from "@/hooks/use-inventory";
-import { formatApiError } from "@/lib/api-client";
 import { formatVndAmount, MOVEMENT_TYPE_LABELS } from "@/lib/labels";
 
-export default function InventoryPage() {
+function InventoryPageContent() {
+  const searchParams = useSearchParams();
+  const initialLowStock = searchParams.get("lowStock") === "true";
+
   const { data: profile } = useMe();
   const branches = profile?.branches ?? [];
   const defaultBranchId =
@@ -44,16 +68,23 @@ export default function InventoryPage() {
 
   const [branchId, setBranchId] = useState<string>("");
   const [search, setSearch] = useState("");
-  const [lowStockOnly, setLowStockOnly] = useState(false);
+  const [lowStockOnly, setLowStockOnly] = useState(initialLowStock);
   const [movementType, setMovementType] = useState<string>("ALL");
+  const [stockPage, setStockPage] = useState(1);
+  const [ledgerPage, setLedgerPage] = useState(1);
+
+  useEffect(() => {
+    setLowStockOnly(searchParams.get("lowStock") === "true");
+    setStockPage(1);
+  }, [searchParams]);
 
   const effectiveBranchId = branchId || defaultBranchId;
   const selectedBranch = branches.find((b) => b.id === effectiveBranchId);
 
   const inventoryQuery = useInventory(
     {
-      page: 1,
-      limit: 50,
+      page: stockPage,
+      limit: 30,
       branchId: effectiveBranchId || undefined,
       search,
       lowStockOnly,
@@ -63,8 +94,8 @@ export default function InventoryPage() {
 
   const ledgerQuery = useInventoryLedgers(
     {
-      page: 1,
-      limit: 50,
+      page: ledgerPage,
+      limit: 30,
       branchId: effectiveBranchId || undefined,
       search,
       movementType:
@@ -76,8 +107,10 @@ export default function InventoryPage() {
   );
 
   const stockItems = inventoryQuery.data?.items ?? [];
+  const stockPagination = inventoryQuery.data?.pagination;
   const summary = inventoryQuery.data?.summary;
   const ledgerItems = ledgerQuery.data?.items ?? [];
+  const ledgerPagination = ledgerQuery.data?.pagination;
 
   return (
     <div className="flex flex-col gap-6">
@@ -85,8 +118,8 @@ export default function InventoryPage() {
         <div className="flex flex-col gap-1">
           <h1 className="text-xl font-semibold">Tồn kho &amp; Thẻ kho</h1>
           <p className="text-sm text-muted-foreground">
-            Theo dõi tồn thực tế, giữ chỗ, giá vốn AVCO theo chi nhánh và lịch
-            sử biến động bất biến.
+            Theo dõi tồn thực tế, tồn khả dụng, giá vốn AVCO theo chi nhánh và
+            lịch sử biến động bất biến.
           </p>
         </div>
 
@@ -94,7 +127,11 @@ export default function InventoryPage() {
           <Select
             value={effectiveBranchId}
             onValueChange={(value) => {
-              if (value) setBranchId(value);
+              if (value) {
+                setBranchId(value);
+                setStockPage(1);
+                setLedgerPage(1);
+              }
             }}
           >
             <SelectTrigger className="w-56">
@@ -128,8 +165,14 @@ export default function InventoryPage() {
               Tổng tồn &times; giá vốn bình quân gia quyền
             </CardDescription>
           </CardHeader>
-          <CardContent className="font-mono text-2xl font-semibold">
-            {summary ? formatVndAmount(summary.totalStockValue) : "0 ₫"}
+          <CardContent className="font-mono text-2xl font-semibold tabular-nums">
+            {inventoryQuery.isLoading ? (
+              <Skeleton className="h-8 w-36" />
+            ) : summary ? (
+              formatVndAmount(summary.totalStockValue)
+            ) : (
+              "0 ₫"
+            )}
           </CardContent>
         </Card>
 
@@ -140,35 +183,50 @@ export default function InventoryPage() {
               Cảnh báo dưới định mức
             </CardTitle>
             <CardDescription>
-              Các SKU có tồn kho nhỏ hơn hoặc bằng min_stock_alert
+              Các SKU có tồn kho nhỏ hơn hoặc bằng mức tối thiểu
             </CardDescription>
           </CardHeader>
-          <CardContent className="text-2xl font-semibold">
-            {summary ? `${summary.lowStockCount} SKU` : "0 SKU"}
+          <CardContent className="text-2xl font-semibold tabular-nums">
+            {inventoryQuery.isLoading ? (
+              <Skeleton className="h-8 w-24" />
+            ) : summary ? (
+              `${summary.lowStockCount} SKU`
+            ) : (
+              "0 SKU"
+            )}
           </CardContent>
         </Card>
       </section>
 
       <Card>
-        <CardContent className="flex flex-wrap items-center gap-3 pt-4">
+        <CardContent className="flex flex-wrap items-center gap-4 pt-4">
           <div className="flex min-w-56 flex-1 items-center gap-2">
             <SearchIcon className="size-4 text-muted-foreground" />
             <Input
               aria-label="Tìm theo tên hàng, SKU hoặc ghi chú thẻ kho"
               placeholder="Tìm tên hàng, SKU hoặc mã vạch..."
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setStockPage(1);
+                setLedgerPage(1);
+              }}
             />
           </div>
 
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
+          <Field orientation="horizontal" className="w-auto">
+            <Checkbox
+              id="inv-low-stock"
               checked={lowStockOnly}
-              onChange={(e) => setLowStockOnly(e.target.checked)}
+              onCheckedChange={(checked) => {
+                setLowStockOnly(Boolean(checked));
+                setStockPage(1);
+              }}
             />
-            <span>Chỉ hiện hàng dưới định mức</span>
-          </label>
+            <FieldLabel htmlFor="inv-low-stock" className="font-normal">
+              Chỉ hiện hàng dưới định mức
+            </FieldLabel>
+          </Field>
         </CardContent>
       </Card>
 
@@ -178,79 +236,96 @@ export default function InventoryPage() {
           <TabsTrigger value="ledger">Thẻ kho bất biến</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="stock" className="pt-3">
+        <TabsContent value="stock" className="flex flex-col gap-3 pt-3">
           {inventoryQuery.isError ? (
-            <Alert variant="destructive">
-              <AlertCircleIcon />
-              <AlertTitle>Không tải được tồn kho</AlertTitle>
-              <AlertDescription>
-                {formatApiError(inventoryQuery.error)}
-              </AlertDescription>
-            </Alert>
+            <QueryErrorAlert
+              title="Không tải được tồn kho"
+              error={inventoryQuery.error}
+              onRetry={() => void inventoryQuery.refetch()}
+            />
           ) : null}
 
-          <Card>
-            <CardContent className="overflow-x-auto pt-4">
-              <table className="w-full text-left text-sm">
-                <thead>
-                  <tr className="border-b text-xs text-muted-foreground">
-                    <th className="py-2 pr-3">SKU</th>
-                    <th className="py-2 pr-3">Sản phẩm</th>
-                    <th className="py-2 pr-3 text-right">Tồn kho</th>
-                    <th className="py-2 pr-3 text-right">Khả dụng</th>
-                    <th className="py-2 pr-3 text-right">Giá vốn AVCO</th>
-                    <th className="py-2 text-right">Giá trị tồn</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {stockItems.map((item) => (
-                    <tr
-                      key={`${item.branchId}-${item.variantId}`}
-                      className="border-b last:border-b-0"
-                    >
-                      <td className="py-2 pr-3 font-mono text-xs">{item.sku}</td>
-                      <td className="py-2 pr-3">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium">
-                            {item.variantName}
-                          </span>
-                          {item.isLowStock ? (
-                            <Badge variant="destructive">Sắp hết</Badge>
-                          ) : null}
-                        </div>
-                      </td>
-                      <td className="py-2 pr-3 text-right font-mono">
-                        {item.onHand}
-                      </td>
-                      <td className="py-2 pr-3 text-right font-mono">
-                        {item.available}
-                      </td>
-                      <td className="py-2 pr-3 text-right font-mono">
-                        {formatVndAmount(item.avgCost)}
-                      </td>
-                      <td className="py-2 text-right font-mono font-medium">
-                        {formatVndAmount(item.stockValue)}
-                      </td>
-                    </tr>
-                  ))}
-                  {stockItems.length === 0 && !inventoryQuery.isLoading ? (
-                    <tr>
-                      <td
-                        colSpan={6}
-                        className="py-6 text-center text-muted-foreground"
-                      >
-                        Chưa có dữ liệu tồn kho phù hợp bộ lọc.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </CardContent>
-          </Card>
+          {inventoryQuery.isLoading ? (
+            <TableRowsSkeleton rows={5} />
+          ) : stockItems.length === 0 ? (
+            <Card>
+              <CardContent className="pt-4">
+                <Empty>
+                  <EmptyHeader>
+                    <EmptyMedia variant="icon">
+                      <WarehouseIcon />
+                    </EmptyMedia>
+                    <EmptyTitle>Chưa có dữ liệu tồn kho phù hợp</EmptyTitle>
+                    <EmptyDescription>
+                      Thử thay đổi bộ lọc hoặc tạo phiếu nhập hàng để tăng tồn
+                      kho chi nhánh.
+                    </EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="pt-4">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="text-xs text-muted-foreground">
+                      <TableHead>SKU</TableHead>
+                      <TableHead>Sản phẩm</TableHead>
+                      <TableHead className="text-right">Tồn kho</TableHead>
+                      <TableHead className="text-right">Khả dụng</TableHead>
+                      <TableHead className="text-right">Giá vốn AVCO</TableHead>
+                      <TableHead className="text-right">Giá trị tồn</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {stockItems.map((item) => (
+                      <TableRow key={`${item.branchId}-${item.variantId}`}>
+                        <TableCell className="font-mono text-xs">
+                          {item.sku}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">
+                              {item.variantName}
+                            </span>
+                            {item.isLowStock ? (
+                              <Badge variant="destructive">Sắp hết</Badge>
+                            ) : null}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right font-mono tabular-nums">
+                          {item.onHand}
+                        </TableCell>
+                        <TableCell className="text-right font-mono tabular-nums">
+                          {item.available}
+                        </TableCell>
+                        <TableCell className="text-right font-mono tabular-nums">
+                          {formatVndAmount(item.avgCost)}
+                        </TableCell>
+                        <TableCell className="text-right font-mono font-medium tabular-nums">
+                          {formatVndAmount(item.stockValue)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+
+                {stockPagination ? (
+                  <DataPagination
+                    page={stockPage}
+                    totalPages={stockPagination.totalPages}
+                    totalItems={stockPagination.total}
+                    onPageChange={setStockPage}
+                  />
+                ) : null}
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         <TabsContent value="ledger" className="flex flex-col gap-3 pt-3">
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
               <HistoryIcon className="size-4" />
               Nhật ký thẻ kho chỉ ghi thêm (append-only)
@@ -259,7 +334,10 @@ export default function InventoryPage() {
             <Select
               value={movementType}
               onValueChange={(value) => {
-                if (value) setMovementType(value);
+                if (value) {
+                  setMovementType(value);
+                  setLedgerPage(1);
+                }
               }}
             >
               <SelectTrigger className="w-52">
@@ -284,70 +362,106 @@ export default function InventoryPage() {
             </Select>
           </div>
 
-          <Card>
-            <CardContent className="overflow-x-auto pt-4">
-              <table className="w-full text-left text-sm">
-                <thead>
-                  <tr className="border-b text-xs text-muted-foreground">
-                    <th className="py-2 pr-3">Thời gian</th>
-                    <th className="py-2 pr-3">Loại</th>
-                    <th className="py-2 pr-3">SKU</th>
-                    <th className="py-2 pr-3 text-right">Trước</th>
-                    <th className="py-2 pr-3 text-right">Biến động</th>
-                    <th className="py-2 pr-3 text-right">Sau</th>
-                    <th className="py-2 pr-3">Người thực hiện</th>
-                    <th className="py-2">Ghi chú</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ledgerItems.map((entry) => (
-                    <tr key={entry.id} className="border-b last:border-b-0">
-                      <td className="py-2 pr-3 text-xs text-muted-foreground">
-                        {new Date(entry.createdAt).toLocaleString("vi-VN")}
-                      </td>
-                      <td className="py-2 pr-3">
-                        <Badge variant="outline">
-                          {MOVEMENT_TYPE_LABELS[entry.movementType]}
-                        </Badge>
-                      </td>
-                      <td className="py-2 pr-3 font-mono text-xs">
-                        {entry.sku}
-                      </td>
-                      <td className="py-2 pr-3 text-right font-mono">
-                        {entry.qtyBefore}
-                      </td>
-                      <td className="py-2 pr-3 text-right font-mono font-semibold">
-                        {Number(entry.qtyDelta) > 0
-                          ? `+${entry.qtyDelta}`
-                          : entry.qtyDelta}
-                      </td>
-                      <td className="py-2 pr-3 text-right font-mono">
-                        {entry.qtyAfter}
-                      </td>
-                      <td className="py-2 pr-3 text-xs">
-                        {entry.actorName} ({entry.actorEmployeeCode})
-                      </td>
-                      <td className="py-2 text-xs text-muted-foreground">
-                        {entry.note ?? "—"}
-                      </td>
-                    </tr>
-                  ))}
-                  {ledgerItems.length === 0 && !ledgerQuery.isLoading ? (
-                    <tr>
-                      <td
-                        colSpan={8}
-                        className="py-6 text-center text-muted-foreground"
-                      >
-                        Chưa có biến động kho nào được ghi nhận.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </CardContent>
-          </Card>
+          {ledgerQuery.isError ? (
+            <QueryErrorAlert
+              title="Không tải được nhật ký thẻ kho"
+              error={ledgerQuery.error}
+              onRetry={() => void ledgerQuery.refetch()}
+            />
+          ) : null}
+
+          {ledgerQuery.isLoading ? (
+            <TableRowsSkeleton rows={5} />
+          ) : ledgerItems.length === 0 ? (
+            <Card>
+              <CardContent className="pt-4">
+                <Empty>
+                  <EmptyHeader>
+                    <EmptyMedia variant="icon">
+                      <HistoryIcon />
+                    </EmptyMedia>
+                    <EmptyTitle>Chưa có biến động kho nào</EmptyTitle>
+                    <EmptyDescription>
+                      Các giao dịch bán hàng, nhập kho, kiểm kho và chuyển kho
+                      sẽ tự động ghi nhận tại đây.
+                    </EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="pt-4">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="text-xs text-muted-foreground">
+                      <TableHead>Thời gian</TableHead>
+                      <TableHead>Loại</TableHead>
+                      <TableHead>SKU</TableHead>
+                      <TableHead className="text-right">Trước</TableHead>
+                      <TableHead className="text-right">Biến động</TableHead>
+                      <TableHead className="text-right">Sau</TableHead>
+                      <TableHead>Người thực hiện</TableHead>
+                      <TableHead>Ghi chú</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {ledgerItems.map((entry) => (
+                      <TableRow key={entry.id}>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {new Date(entry.createdAt).toLocaleString("vi-VN")}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">
+                            {MOVEMENT_TYPE_LABELS[entry.movementType]}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="font-mono text-xs">
+                          {entry.sku}
+                        </TableCell>
+                        <TableCell className="text-right font-mono tabular-nums">
+                          {entry.qtyBefore}
+                        </TableCell>
+                        <TableCell className="text-right font-mono font-semibold tabular-nums">
+                          {Number(entry.qtyDelta) > 0
+                            ? `+${entry.qtyDelta}`
+                            : entry.qtyDelta}
+                        </TableCell>
+                        <TableCell className="text-right font-mono tabular-nums">
+                          {entry.qtyAfter}
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          {entry.actorName} ({entry.actorEmployeeCode})
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {entry.note ?? "—"}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+
+                {ledgerPagination ? (
+                  <DataPagination
+                    page={ledgerPage}
+                    totalPages={ledgerPagination.totalPages}
+                    totalItems={ledgerPagination.total}
+                    onPageChange={setLedgerPage}
+                  />
+                ) : null}
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+export default function InventoryPage() {
+  return (
+    <Suspense fallback={<TableRowsSkeleton rows={6} />}>
+      <InventoryPageContent />
+    </Suspense>
   );
 }

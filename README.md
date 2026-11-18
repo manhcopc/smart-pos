@@ -16,7 +16,8 @@ smart-pos/
 ├── docs/
 │   ├── SRS.md               # Đặc tả yêu cầu phần mềm (Priority 1–3 + NFR)
 │   ├── DATABASE_SCHEMA.md   # Thiết kế PostgreSQL Multi-tenant & Inventory Ledger
-│   └── ROADMAP.md           # Lộ trình triển khai theo từng Phase
+│   ├── ROADMAP.md           # Lộ trình triển khai theo từng Phase
+│   └── UI_SCREENS_REPORT.md # Kiến trúc 17 màn hình, Design System OKLCH, RBAC & State Matrix
 ├── docker-compose.yml       # PostgreSQL 16 + Redis 7 cho môi trường dev
 ├── pnpm-workspace.yaml
 └── turbo.json
@@ -58,3 +59,4 @@ pnpm test
 - [docs/SRS.md](./docs/SRS.md)
 - [docs/DATABASE_SCHEMA.md](./docs/DATABASE_SCHEMA.md)
 - [docs/ROADMAP.md](./docs/ROADMAP.md)
+- [docs/UI_SCREENS_REPORT.md](./docs/UI_SCREENS_REPORT.md)

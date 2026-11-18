@@ -6,14 +6,18 @@ import {
   type ReportExportType,
 } from "@smart-pos/shared";
 import {
-  AlertCircleIcon,
   BarChart3Icon,
   DownloadIcon,
   FileSpreadsheetIcon,
 } from "lucide-react";
 import { useState } from "react";
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  CardGridSkeleton,
+  QueryErrorAlert,
+  TableRowsSkeleton,
+} from "@/components/shared/page-states";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,6 +27,21 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  type ChartConfig,
+  ChartContainer,
+  ChartLegend,
+  ChartLegendContent,
+  ChartTooltip,
+  ChartTooltipContent,
+} from "@/components/ui/chart";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
@@ -33,6 +52,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { useMe } from "@/hooks/use-auth";
 import {
   getReportExportDownloadUrl,
@@ -40,24 +67,42 @@ import {
   useReportExports,
   useReportOverview,
 } from "@/hooks/use-reports";
-import { formatApiError } from "@/lib/api-client";
+import { apiDownloadFile, formatApiError } from "@/lib/api-client";
+import { isMockDataMode } from "@/lib/data-mode";
 import {
   EXPORT_JOB_STATUS_LABELS,
   formatVndAmount,
   REPORT_EXPORT_TYPE_LABELS,
 } from "@/lib/labels";
 
-function defaultDateRange() {
-  const vnNow = new Date(Date.now() + 7 * 60 * 60 * 1000);
-  const to = vnNow.toISOString().slice(0, 10);
-  const vnFrom = new Date(vnNow.getTime() - 29 * 24 * 60 * 60 * 1000);
-  const from = vnFrom.toISOString().slice(0, 10);
-  return { from, to };
+function vnToday(): Date {
+  return new Date(Date.now() + 7 * 60 * 60 * 1000);
 }
+
+function getPresetRange(days: number | "MONTH"): { from: string; to: string } {
+  const vnNow = vnToday();
+  const to = vnNow.toISOString().slice(0, 10);
+  if (days === "MONTH") {
+    return { from: `${to.slice(0, 7)}-01`, to };
+  }
+  const vnFrom = new Date(vnNow.getTime() - (days - 1) * 24 * 60 * 60 * 1000);
+  return { from: vnFrom.toISOString().slice(0, 10), to };
+}
+
+const revenueChartConfig = {
+  netRevenue: {
+    label: "Doanh thu thuần",
+    color: "var(--chart-1)",
+  },
+  grossProfit: {
+    label: "Lợi nhuận gộp",
+    color: "var(--chart-2)",
+  },
+} satisfies ChartConfig;
 
 export default function ReportsPage() {
   const { data: profile } = useMe();
-  const initialRange = defaultDateRange();
+  const initialRange = getPresetRange(30);
   const [branchId, setBranchId] = useState<string>("ALL");
   const [from, setFrom] = useState(initialRange.from);
   const [to, setTo] = useState(initialRange.to);
@@ -75,10 +120,12 @@ export default function ReportsPage() {
   const createExportMutation = useCreateReportExport();
 
   const overview = overviewQuery.data;
-  const maxDailyNet = Math.max(
-    1,
-    ...(overview?.dailySeries.map((d) => Math.abs(Number(d.netRevenue))) ?? [1]),
-  );
+  const chartData = (overview?.dailySeries ?? []).map((day) => ({
+    date: day.date.slice(5),
+    fullDate: day.date,
+    netRevenue: Number(day.netRevenue),
+    grossProfit: Number(day.grossProfit),
+  }));
 
   async function handleEnqueueExport(reportType: ReportExportType) {
     try {
@@ -89,7 +136,7 @@ export default function ReportsPage() {
         to,
       });
       toast.success(
-        `Đã đưa báo cáo "${REPORT_EXPORT_TYPE_LABELS[reportType]}" vào hàng đợi BullMQ (${job.fileName})`,
+        `Đã tạo yêu cầu xuất "${REPORT_EXPORT_TYPE_LABELS[reportType]}" (${job.fileName})`,
       );
     } catch (error) {
       toast.error(formatApiError(error, "Không thể tạo tác vụ xuất Excel."));
@@ -98,6 +145,13 @@ export default function ReportsPage() {
 
   async function handleDownload(job: ReportExportJobItem) {
     try {
+      if (isMockDataMode()) {
+        await apiDownloadFile(
+          `/reports/exports/${job.id}/download`,
+          job.fileName,
+        );
+        return;
+      }
       const response = await fetch(getReportExportDownloadUrl(job.id), {
         credentials: "include",
       });
@@ -118,17 +172,70 @@ export default function ReportsPage() {
     }
   }
 
+  const exportJobs = exportsQuery.data?.items ?? [];
+
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold">
-            Báo cáo Doanh thu &amp; Xuất Excel nền (BullMQ)
+            Báo cáo Doanh thu &amp; Lợi nhuận
           </h1>
           <p className="text-sm text-muted-foreground">
-            Tổng hợp tức thì từ bảng daily_branch_summaries và xuất file XLSX dung
-            lượng lớn không chặn phiên làm việc.
+            Theo dõi hiệu quả bán hàng theo ngày, sản phẩm bán chạy và xuất file
+            Excel lưu trữ.
           </p>
+        </div>
+
+        <div className="flex flex-wrap gap-1.5">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              const r = getPresetRange(1);
+              setFrom(r.from);
+              setTo(r.to);
+            }}
+          >
+            Hôm nay
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              const r = getPresetRange(7);
+              setFrom(r.from);
+              setTo(r.to);
+            }}
+          >
+            7 ngày
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              const r = getPresetRange(30);
+              setFrom(r.from);
+              setTo(r.to);
+            }}
+          >
+            30 ngày
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              const r = getPresetRange("MONTH");
+              setFrom(r.from);
+              setTo(r.to);
+            }}
+          >
+            Tháng này
+          </Button>
         </div>
       </header>
 
@@ -221,16 +328,19 @@ export default function ReportsPage() {
       </Card>
 
       {overviewQuery.isError ? (
-        <Alert variant="destructive">
-          <AlertCircleIcon />
-          <AlertTitle>Không thể tải báo cáo</AlertTitle>
-          <AlertDescription>
-            {formatApiError(overviewQuery.error)}
-          </AlertDescription>
-        </Alert>
+        <QueryErrorAlert
+          title="Không thể tải báo cáo"
+          error={overviewQuery.error}
+          onRetry={() => void overviewQuery.refetch()}
+        />
       ) : null}
 
-      {overview ? (
+      {overviewQuery.isLoading ? (
+        <CardGridSkeleton
+          count={4}
+          columnsClass="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"
+        />
+      ) : overview ? (
         <>
           <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <Card>
@@ -239,7 +349,7 @@ export default function ReportsPage() {
                   Doanh thu thuần
                 </CardTitle>
               </CardHeader>
-              <CardContent className="font-mono text-xl font-semibold">
+              <CardContent className="font-mono text-xl font-semibold tabular-nums">
                 {formatVndAmount(overview.kpis.netRevenue)}
               </CardContent>
             </Card>
@@ -249,7 +359,7 @@ export default function ReportsPage() {
                   Giá vốn (COGS)
                 </CardTitle>
               </CardHeader>
-              <CardContent className="font-mono text-xl font-semibold">
+              <CardContent className="font-mono text-xl font-semibold tabular-nums">
                 {formatVndAmount(overview.kpis.cogsTotal)}
               </CardContent>
             </Card>
@@ -259,7 +369,7 @@ export default function ReportsPage() {
                   Lợi nhuận gộp
                 </CardTitle>
               </CardHeader>
-              <CardContent className="font-mono text-xl font-semibold text-primary">
+              <CardContent className="font-mono text-xl font-semibold text-primary tabular-nums">
                 {formatVndAmount(overview.kpis.grossProfit)}
               </CardContent>
             </Card>
@@ -270,10 +380,10 @@ export default function ReportsPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="flex flex-col gap-0.5 text-sm">
-                <span className="font-mono font-semibold text-destructive">
+                <span className="font-mono font-semibold text-destructive tabular-nums">
                   Hoàn: {formatVndAmount(overview.kpis.refundTotal)}
                 </span>
-                <span className="font-mono text-muted-foreground">
+                <span className="font-mono text-muted-foreground tabular-nums">
                   CK: {formatVndAmount(overview.kpis.discountTotal)}
                 </span>
               </CardContent>
@@ -293,108 +403,204 @@ export default function ReportsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {overview.dailySeries.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  Chưa có dữ liệu tổng hợp trong khoảng ngày đã chọn.
-                </p>
+              {chartData.length === 0 ? (
+                <Empty className="py-4">
+                  <EmptyHeader>
+                    <EmptyMedia variant="icon">
+                      <BarChart3Icon />
+                    </EmptyMedia>
+                    <EmptyTitle>Chưa có dữ liệu tổng hợp</EmptyTitle>
+                    <EmptyDescription>
+                      Chưa phát sinh doanh thu trong khoảng thời gian đã chọn.
+                    </EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
               ) : (
-                <div className="flex flex-col gap-2">
-                  {overview.dailySeries.map((day) => {
-                    const widthPct = Math.min(
-                      100,
-                      Math.round(
-                        (Math.abs(Number(day.netRevenue)) / maxDailyNet) * 100,
-                      ),
-                    );
-                    return (
-                      <div
-                        key={day.date}
-                        className="grid items-center gap-3 text-xs sm:grid-cols-[100px_1fr_200px]"
-                      >
-                        <span className="font-mono text-muted-foreground">
-                          {day.date}
-                        </span>
-                        <div className="h-3 overflow-hidden rounded-full bg-muted">
-                          <div
-                            className="h-full rounded-full bg-primary"
-                            style={{ width: `${Math.max(widthPct, 2)}%` }}
-                          />
-                        </div>
-                        <span className="text-right font-mono">
-                          DT: {formatVndAmount(day.netRevenue)} · LG:{" "}
-                          {formatVndAmount(day.grossProfit)}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
+                <ChartContainer
+                  config={revenueChartConfig}
+                  className="h-64 w-full"
+                >
+                  <BarChart data={chartData}>
+                    <CartesianGrid vertical={false} />
+                    <XAxis
+                      dataKey="date"
+                      tickLine={false}
+                      axisLine={false}
+                      tickMargin={8}
+                    />
+                    <YAxis
+                      tickLine={false}
+                      axisLine={false}
+                      width={72}
+                      tickFormatter={(val: number) =>
+                        val >= 1_000_000
+                          ? `${(val / 1_000_000).toFixed(1)}tr`
+                          : val >= 1_000
+                            ? `${Math.round(val / 1_000)}k`
+                            : String(val)
+                      }
+                    />
+                    <ChartTooltip
+                      content={
+                        <ChartTooltipContent
+                          formatter={(value, name) => (
+                            <div className="flex flex-1 items-center justify-between gap-4">
+                              <span className="text-muted-foreground">
+                                {name === "netRevenue"
+                                  ? "Doanh thu thuần"
+                                  : "Lợi nhuận gộp"}
+                              </span>
+                              <span className="font-mono font-medium tabular-nums">
+                                {formatVndAmount(Number(value))}
+                              </span>
+                            </div>
+                          )}
+                        />
+                      }
+                    />
+                    <ChartLegend content={<ChartLegendContent />} />
+                    <Bar
+                      dataKey="netRevenue"
+                      fill="var(--color-netRevenue)"
+                      radius={4}
+                    />
+                    <Bar
+                      dataKey="grossProfit"
+                      fill="var(--color-grossProfit)"
+                      radius={4}
+                    />
+                  </BarChart>
+                </ChartContainer>
               )}
             </CardContent>
           </Card>
+
+          {overview.topProducts.length > 0 ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">
+                  Top sản phẩm bán chạy
+                </CardTitle>
+                <CardDescription>
+                  Xếp hạng theo doanh thu thực bán trong kỳ lọc
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow className="text-xs text-muted-foreground">
+                      <TableHead>SKU</TableHead>
+                      <TableHead>Sản phẩm</TableHead>
+                      <TableHead className="text-right">SL bán</TableHead>
+                      <TableHead className="text-right">Doanh thu</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {overview.topProducts.slice(0, 10).map((item) => (
+                      <TableRow key={item.variantId}>
+                        <TableCell className="font-mono text-xs">
+                          {item.sku}
+                        </TableCell>
+                        <TableCell className="font-medium">
+                          {item.productName} - {item.variantName}
+                        </TableCell>
+                        <TableCell className="text-right font-mono tabular-nums">
+                          {Number(item.quantitySold)}
+                        </TableCell>
+                        <TableCell className="text-right font-mono font-semibold tabular-nums">
+                          {formatVndAmount(item.revenue)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          ) : null}
         </>
       ) : null}
 
       <Card>
         <CardHeader>
           <CardTitle className="text-base">
-            Hàng đợi Xuất Báo cáo Excel (BullMQ Worker)
+            Danh sách tệp Xuất Báo cáo Excel
           </CardTitle>
           <CardDescription>
-            Tự động cập nhật tiến trình chạy nền; nhấn Tải về khi hoàn tất.
+            Tự động cập nhật tiến trình xử lý nền; nhấn Tải Excel khi hoàn tất.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
-          {(exportsQuery.data?.items ?? []).map((job) => (
-            <div
-              key={job.id}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm"
-            >
-              <div className="flex flex-col gap-0.5">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium">
-                    {REPORT_EXPORT_TYPE_LABELS[job.reportType]}
+          {exportsQuery.isError ? (
+            <QueryErrorAlert
+              title="Không tải được danh sách file xuất"
+              error={exportsQuery.error}
+              onRetry={() => void exportsQuery.refetch()}
+            />
+          ) : null}
+
+          {exportsQuery.isLoading ? (
+            <TableRowsSkeleton rows={2} />
+          ) : exportJobs.length === 0 ? (
+            <Empty className="py-4">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <FileSpreadsheetIcon />
+                </EmptyMedia>
+                <EmptyTitle>Chưa có yêu cầu xuất báo cáo nào</EmptyTitle>
+                <EmptyDescription>
+                  Chọn loại báo cáo ở phía trên và bấm &ldquo;Xuất XLSX&rdquo;
+                  để tạo tệp tải xuống.
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          ) : (
+            exportJobs.map((job) => (
+              <div
+                key={job.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm"
+              >
+                <div className="flex flex-col gap-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">
+                      {REPORT_EXPORT_TYPE_LABELS[job.reportType]}
+                    </span>
+                    <Badge
+                      variant={
+                        job.status === "COMPLETED"
+                          ? "default"
+                          : job.status === "FAILED"
+                            ? "destructive"
+                            : "secondary"
+                      }
+                    >
+                      {EXPORT_JOB_STATUS_LABELS[job.status]}
+                    </Badge>
+                  </div>
+                  <span className="font-mono text-xs text-muted-foreground">
+                    {job.fileName} · {job.rowCount} dòng · Người tạo:{" "}
+                    {job.requestedByName}
                   </span>
-                  <Badge
-                    variant={
-                      job.status === "COMPLETED"
-                        ? "default"
-                        : job.status === "FAILED"
-                          ? "destructive"
-                          : "secondary"
-                    }
-                  >
-                    {EXPORT_JOB_STATUS_LABELS[job.status]}
-                  </Badge>
+                  {job.errorMessage ? (
+                    <span className="text-xs text-destructive">
+                      {job.errorMessage}
+                    </span>
+                  ) : null}
                 </div>
-                <span className="font-mono text-xs text-muted-foreground">
-                  {job.fileName} · {job.rowCount} dòng · Người tạo:{" "}
-                  {job.requestedByName}
-                </span>
-                {job.errorMessage ? (
-                  <span className="text-xs text-destructive">
-                    {job.errorMessage}
-                  </span>
+
+                {job.status === "COMPLETED" ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void handleDownload(job)}
+                  >
+                    <DownloadIcon data-icon="inline-start" />
+                    Tải Excel
+                  </Button>
                 ) : null}
               </div>
-
-              {job.status === "COMPLETED" ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => void handleDownload(job)}
-                >
-                  <DownloadIcon data-icon="inline-start" />
-                  Tải Excel
-                </Button>
-              ) : null}
-            </div>
-          ))}
-          {(exportsQuery.data?.items ?? []).length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Chưa có yêu cầu xuất báo cáo nào.
-            </p>
-          ) : null}
+            ))
+          )}
         </CardContent>
       </Card>
     </div>

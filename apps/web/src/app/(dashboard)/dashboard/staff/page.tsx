@@ -16,7 +16,11 @@ import {
 } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  CardGridSkeleton,
+  QueryErrorAlert,
+} from "@/components/shared/page-states";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,6 +30,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -35,11 +40,21 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import {
   Field,
   FieldDescription,
   FieldError,
   FieldGroup,
   FieldLabel,
+  FieldLegend,
+  FieldSet,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
@@ -50,6 +65,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { useMe } from "@/hooks/use-auth";
 import { useBranches } from "@/hooks/use-branches";
 import { useCreateStaff, useStaff, useUpdateStaff } from "@/hooks/use-staff";
@@ -103,7 +119,9 @@ export default function StaffPage() {
   const [editError, setEditError] = useState<string | null>(null);
 
   const branches = branchesQuery.data?.items ?? [];
-  const branchNameById = new Map(branches.map((b) => [b.id, `${b.code} · ${b.name}`]));
+  const branchNameById = new Map(
+    branches.map((b) => [b.id, `${b.code} · ${b.name}`]),
+  );
 
   function openCreateDialog() {
     setFullName("");
@@ -231,74 +249,101 @@ export default function StaffPage() {
       </header>
 
       {staffQuery.isError ? (
-        <Alert variant="destructive">
-          <AlertCircleIcon />
-          <AlertTitle>Không tải được danh sách nhân viên</AlertTitle>
-          <AlertDescription>{formatApiError(staffQuery.error)}</AlertDescription>
-        </Alert>
+        <QueryErrorAlert
+          title="Không tải được danh sách nhân viên"
+          error={staffQuery.error}
+          onRetry={() => void staffQuery.refetch()}
+        />
       ) : null}
 
-      <div className="grid gap-4 md:grid-cols-2">
-        {members.map((member) => {
-          const canEditMember = isOwner || member.role !== "OWNER";
-          const branchText =
-            member.allowedBranchIds.length === 0
-              ? "Tất cả chi nhánh"
-              : member.allowedBranchIds
-                  .map((id) => branchNameById.get(id) ?? id)
-                  .join(", ");
+      {staffQuery.isLoading ? (
+        <CardGridSkeleton count={4} />
+      ) : members.length === 0 ? (
+        <Card>
+          <CardContent className="pt-4">
+            <Empty>
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <UsersIcon />
+                </EmptyMedia>
+                <EmptyTitle>Chưa có nhân viên nào</EmptyTitle>
+                <EmptyDescription>
+                  Thêm nhân viên thu ngân, thủ kho hoặc quản lý chi nhánh để
+                  phân quyền vận hành.
+                </EmptyDescription>
+              </EmptyHeader>
+              <EmptyContent>
+                <Button onClick={openCreateDialog}>
+                  <PlusIcon data-icon="inline-start" />
+                  Thêm nhân viên
+                </Button>
+              </EmptyContent>
+            </Empty>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2">
+          {members.map((member) => {
+            const canEditMember = isOwner || member.role !== "OWNER";
+            const branchText =
+              member.allowedBranchIds.length === 0
+                ? "Tất cả chi nhánh"
+                : member.allowedBranchIds
+                    .map((id) => branchNameById.get(id) ?? id)
+                    .join(", ");
 
-          return (
-            <Card key={member.id}>
-              <CardHeader className="flex flex-row items-start justify-between gap-2">
-                <div className="flex flex-col gap-1">
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <UsersIcon className="size-4 text-primary" />
-                    <span>{member.fullName}</span>
-                  </CardTitle>
-                  <CardDescription className="font-mono text-xs">
-                    Mã NV: {member.employeeCode}
-                  </CardDescription>
-                </div>
-
-                <div className="flex flex-wrap items-center justify-end gap-1.5">
-                  <Badge>{ROLE_LABELS[member.role]}</Badge>
-                  <Badge variant={member.isActive ? "secondary" : "outline"}>
-                    {member.isActive ? "Đang hoạt động" : "Đã khóa"}
-                  </Badge>
-                </div>
-              </CardHeader>
-
-              <CardContent className="flex flex-col gap-1.5 text-sm text-muted-foreground">
-                <span>
-                  Email: {member.email ? member.email : "Chỉ đăng nhập PIN"}
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <KeyRoundIcon className="size-3.5" />
-                  PIN thu ngân: {member.hasPin ? "Đã thiết lập" : "Chưa có"}
-                </span>
-                <span>Chi nhánh: {branchText}</span>
-
-                {canEditMember ? (
-                  <div className="pt-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => openEditDialog(member)}
-                    >
-                      <PencilIcon data-icon="inline-start" />
-                      Chỉnh sửa
-                    </Button>
+            return (
+              <Card key={member.id}>
+                <CardHeader className="flex flex-row items-start justify-between gap-2">
+                  <div className="flex flex-col gap-1">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <UsersIcon className="size-4 text-primary" />
+                      <span>{member.fullName}</span>
+                    </CardTitle>
+                    <CardDescription className="font-mono text-xs">
+                      Mã NV: {member.employeeCode}
+                    </CardDescription>
                   </div>
-                ) : null}
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
+
+                  <div className="flex flex-wrap items-center justify-end gap-1.5">
+                    <Badge>{ROLE_LABELS[member.role]}</Badge>
+                    <Badge variant={member.isActive ? "secondary" : "outline"}>
+                      {member.isActive ? "Đang hoạt động" : "Đã khóa"}
+                    </Badge>
+                  </div>
+                </CardHeader>
+
+                <CardContent className="flex flex-col gap-1.5 text-sm text-muted-foreground">
+                  <span>
+                    Email: {member.email ? member.email : "Chỉ đăng nhập PIN"}
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <KeyRoundIcon className="size-3.5" />
+                    PIN thu ngân: {member.hasPin ? "Đã thiết lập" : "Chưa có"}
+                  </span>
+                  <span>Chi nhánh: {branchText}</span>
+
+                  {canEditMember ? (
+                    <div className="pt-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => openEditDialog(member)}
+                      >
+                        <PencilIcon data-icon="inline-start" />
+                        Chỉnh sửa
+                      </Button>
+                    </div>
+                  ) : null}
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Thêm nhân viên mới</DialogTitle>
             <DialogDescription>
@@ -431,33 +476,35 @@ export default function StaffPage() {
               </Field>
 
               {branches.length > 0 ? (
-                <Field>
-                  <FieldLabel>Phạm vi chi nhánh được phép</FieldLabel>
+                <FieldSet>
+                  <FieldLegend variant="label">
+                    Phạm vi chi nhánh được phép
+                  </FieldLegend>
                   <FieldDescription>
                     Bỏ trống nếu nhân viên được truy cập tất cả chi nhánh.
                   </FieldDescription>
-                  <div className="flex flex-col gap-1.5 pt-1">
-                    {branches.map((branch) => (
-                      <label
-                        key={branch.id}
-                        className="flex items-center gap-2 text-sm"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={allowedBranchIds.includes(branch.id)}
-                          onChange={() =>
-                            setAllowedBranchIds((prev) =>
-                              toggleBranchSelection(prev, branch.id),
-                            )
-                          }
-                        />
-                        <span>
-                          {branch.code} · {branch.name}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                </Field>
+                  <FieldGroup className="gap-2.5 pt-1">
+                    {branches.map((branch) => {
+                      const checkboxId = `create-staff-branch-${branch.id}`;
+                      return (
+                        <Field key={branch.id} orientation="horizontal">
+                          <Checkbox
+                            id={checkboxId}
+                            checked={allowedBranchIds.includes(branch.id)}
+                            onCheckedChange={() =>
+                              setAllowedBranchIds((prev) =>
+                                toggleBranchSelection(prev, branch.id),
+                              )
+                            }
+                          />
+                          <FieldLabel htmlFor={checkboxId} className="font-normal">
+                            {branch.code} · {branch.name}
+                          </FieldLabel>
+                        </Field>
+                      );
+                    })}
+                  </FieldGroup>
+                </FieldSet>
               ) : null}
             </FieldGroup>
 
@@ -485,7 +532,7 @@ export default function StaffPage() {
           if (!open) setEditingStaff(null);
         }}
       >
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>
               Chỉnh sửa nhân viên {editingStaff?.employeeCode}
@@ -562,54 +609,66 @@ export default function StaffPage() {
                   value={editPin}
                   onChange={(e) => setEditPin(e.target.value)}
                 />
-                <label className="flex items-center gap-2 pt-1 text-xs text-muted-foreground">
-                  <input
-                    type="checkbox"
+                <Field orientation="horizontal" className="pt-1">
+                  <Checkbox
+                    id="staff-clear-pin"
                     checked={clearPin}
-                    onChange={(e) => {
-                      setClearPin(e.target.checked);
-                      if (e.target.checked) setEditPin("");
+                    onCheckedChange={(checked) => {
+                      const next = Boolean(checked);
+                      setClearPin(next);
+                      if (next) setEditPin("");
                     }}
                   />
-                  <span>Xóa mã PIN hiện tại</span>
-                </label>
+                  <FieldLabel
+                    htmlFor="staff-clear-pin"
+                    className="text-xs font-normal text-muted-foreground"
+                  >
+                    Xóa mã PIN hiện tại
+                  </FieldLabel>
+                </Field>
               </Field>
 
               {branches.length > 0 ? (
-                <Field>
-                  <FieldLabel>Phạm vi chi nhánh được phép</FieldLabel>
-                  <div className="flex flex-col gap-1.5">
-                    {branches.map((branch) => (
-                      <label
-                        key={branch.id}
-                        className="flex items-center gap-2 text-sm"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={editAllowedBranchIds.includes(branch.id)}
-                          onChange={() =>
-                            setEditAllowedBranchIds((prev) =>
-                              toggleBranchSelection(prev, branch.id),
-                            )
-                          }
-                        />
-                        <span>
-                          {branch.code} · {branch.name}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                </Field>
+                <FieldSet>
+                  <FieldLegend variant="label">
+                    Phạm vi chi nhánh được phép
+                  </FieldLegend>
+                  <FieldGroup className="gap-2.5">
+                    {branches.map((branch) => {
+                      const checkboxId = `edit-staff-branch-${branch.id}`;
+                      return (
+                        <Field key={branch.id} orientation="horizontal">
+                          <Checkbox
+                            id={checkboxId}
+                            checked={editAllowedBranchIds.includes(branch.id)}
+                            onCheckedChange={() =>
+                              setEditAllowedBranchIds((prev) =>
+                                toggleBranchSelection(prev, branch.id),
+                              )
+                            }
+                          />
+                          <FieldLabel htmlFor={checkboxId} className="font-normal">
+                            {branch.code} · {branch.name}
+                          </FieldLabel>
+                        </Field>
+                      );
+                    })}
+                  </FieldGroup>
+                </FieldSet>
               ) : null}
 
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
+              <Field orientation="horizontal">
+                <Switch
+                  id="staff-edit-active"
                   checked={editIsActive}
-                  onChange={(e) => setEditIsActive(e.target.checked)}
+                  onCheckedChange={(checked) =>
+                    setEditIsActive(Boolean(checked))
+                  }
                 />
-                <span>Tài khoản đang hoạt động</span>
-              </label>
+                <FieldLabel htmlFor="staff-edit-active" className="font-normal">
+                  Tài khoản đang hoạt động
+                </FieldLabel>
+              </Field>
             </FieldGroup>
 
             <DialogFooter>

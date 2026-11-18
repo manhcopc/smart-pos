@@ -20,6 +20,11 @@ import {
 } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
+import { DataPagination } from "@/components/shared/data-pagination";
+import {
+  CardGridSkeleton,
+  QueryErrorAlert,
+} from "@/components/shared/page-states";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,6 +35,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -39,10 +45,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  Field,
-  FieldGroup,
-  FieldLabel,
-} from "@/components/ui/field";
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -52,6 +62,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useMe } from "@/hooks/use-auth";
 import { useProducts } from "@/hooks/use-catalog";
@@ -83,7 +101,8 @@ export default function PurchaseOrdersPage() {
   const defaultBranchId =
     branches.find((b) => b.isDefault)?.id ?? branches[0]?.id ?? "";
 
-  const poQuery = usePurchaseOrders({ page: 1, limit: 30 }, Boolean(profile));
+  const [page, setPage] = useState(1);
+  const poQuery = usePurchaseOrders({ page, limit: 20 }, Boolean(profile));
   const suppliersQuery = useSuppliers(Boolean(profile));
   const productsQuery = useProducts({ page: 1, limit: 100 }, Boolean(profile));
 
@@ -101,7 +120,6 @@ export default function PurchaseOrdersPage() {
     })),
   );
 
-  // PO Dialog state
   const [poOpen, setPoOpen] = useState(false);
   const [poBranchId, setPoBranchId] = useState("");
   const [poSupplierId, setPoSupplierId] = useState("NONE");
@@ -110,7 +128,6 @@ export default function PurchaseOrdersPage() {
   const [lines, setLines] = useState<PoLineDraft[]>([]);
   const [poError, setPoError] = useState<string | null>(null);
 
-  // Supplier Dialog state
   const [supOpen, setSupOpen] = useState(false);
   const [supCode, setSupCode] = useState("");
   const [supName, setSupName] = useState("");
@@ -217,6 +234,7 @@ export default function PurchaseOrdersPage() {
   }
 
   const purchaseOrders = poQuery.data?.items ?? [];
+  const poPagination = poQuery.data?.pagination;
   const suppliers = suppliersQuery.data ?? [];
 
   return (
@@ -280,135 +298,225 @@ export default function PurchaseOrdersPage() {
         </TabsList>
 
         <TabsContent value="orders" className="flex flex-col gap-4 pt-3">
-          {purchaseOrders.map((po) => (
-            <Card key={po.id}>
-              <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
-                <div className="flex flex-col gap-1">
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <span className="font-mono">{po.code}</span>
-                    <Badge
-                      variant={
-                        po.status === "COMPLETED"
-                          ? "secondary"
-                          : po.status === "CANCELLED"
-                            ? "outline"
-                            : "default"
-                      }
-                    >
-                      {PO_STATUS_LABELS[po.status]}
-                    </Badge>
-                  </CardTitle>
-                  <CardDescription>
-                    Chi nhánh: {po.branchCode} · {po.branchName} · NCC:{" "}
-                    {po.supplierName ?? "Nhập lẻ"} · Tạo bởi {po.createdByName}
-                  </CardDescription>
-                </div>
+          {poQuery.isError ? (
+            <QueryErrorAlert
+              title="Không tải được danh sách phiếu nhập"
+              error={poQuery.error}
+              onRetry={() => void poQuery.refetch()}
+            />
+          ) : null}
 
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-mono text-sm font-semibold">
-                    {formatVndAmount(po.totalAmount)}
-                  </span>
-                  {canReceive && po.status === "DRAFT" ? (
-                    <>
-                      <Button
-                        size="sm"
-                        onClick={async () => {
-                          try {
-                            await completePoMutation.mutateAsync({
-                              id: po.id,
-                              data: {},
-                            });
-                            toast.success(`Đã hoàn tất nhập kho phiếu ${po.code}`);
-                          } catch (err) {
-                            toast.error(formatApiError(err));
-                          }
-                        }}
-                        disabled={completePoMutation.isPending}
-                      >
-                        <CheckCircle2Icon data-icon="inline-start" />
-                        Hoàn tất nhập
+          {poQuery.isLoading ? (
+            <CardGridSkeleton count={3} columnsClass="flex flex-col gap-4" />
+          ) : purchaseOrders.length === 0 ? (
+            <Card>
+              <CardContent className="pt-4">
+                <Empty>
+                  <EmptyHeader>
+                    <EmptyMedia variant="icon">
+                      <PackagePlusIcon />
+                    </EmptyMedia>
+                    <EmptyTitle>Chưa có phiếu nhập hàng nào</EmptyTitle>
+                    <EmptyDescription>
+                      Tạo phiếu nhập kho từ nhà cung cấp để cập nhật tồn kho và
+                      tính giá vốn bình quân gia quyền.
+                    </EmptyDescription>
+                  </EmptyHeader>
+                  {canReceive && allVariants.length > 0 ? (
+                    <EmptyContent>
+                      <Button onClick={openCreatePoDialog}>
+                        <PackagePlusIcon data-icon="inline-start" />
+                        Tạo phiếu nhập đầu tiên
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={async () => {
-                          try {
-                            await cancelPoMutation.mutateAsync(po.id);
-                            toast.success(`Đã hủy phiếu ${po.code}`);
-                          } catch (err) {
-                            toast.error(formatApiError(err));
-                          }
-                        }}
-                        disabled={cancelPoMutation.isPending}
-                      >
-                        <XCircleIcon data-icon="inline-start" />
-                        Hủy
-                      </Button>
-                    </>
+                    </EmptyContent>
                   ) : null}
-                </div>
-              </CardHeader>
-              <CardContent className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead>
-                    <tr className="border-b text-xs text-muted-foreground">
-                      <th className="py-1.5 pr-3">SKU</th>
-                      <th className="py-1.5 pr-3">Tên hàng</th>
-                      <th className="py-1.5 pr-3 text-right">SL đặt</th>
-                      <th className="py-1.5 pr-3 text-right">SL thực nhập</th>
-                      <th className="py-1.5 pr-3 text-right">Đơn giá nhập</th>
-                      <th className="py-1.5 text-right">Thành tiền</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {po.items.map((item) => (
-                      <tr key={item.id} className="border-b last:border-b-0">
-                        <td className="py-1.5 pr-3 font-mono text-xs">
-                          {item.sku}
-                        </td>
-                        <td className="py-1.5 pr-3">{item.variantName}</td>
-                        <td className="py-1.5 pr-3 text-right font-mono">
-                          {item.orderedQty}
-                        </td>
-                        <td className="py-1.5 pr-3 text-right font-mono">
-                          {item.receivedQty}
-                        </td>
-                        <td className="py-1.5 pr-3 text-right font-mono">
-                          {formatVndAmount(item.unitCost)}
-                        </td>
-                        <td className="py-1.5 text-right font-mono font-medium">
-                          {formatVndAmount(item.lineTotal)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                </Empty>
               </CardContent>
             </Card>
-          ))}
+          ) : (
+            <>
+              {purchaseOrders.map((po) => (
+                <Card key={po.id}>
+                  <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
+                    <div className="flex flex-col gap-1">
+                      <CardTitle className="flex items-center gap-2 text-base">
+                        <span className="font-mono">{po.code}</span>
+                        <Badge
+                          variant={
+                            po.status === "COMPLETED"
+                              ? "secondary"
+                              : po.status === "CANCELLED"
+                                ? "outline"
+                                : "default"
+                          }
+                        >
+                          {PO_STATUS_LABELS[po.status]}
+                        </Badge>
+                      </CardTitle>
+                      <CardDescription>
+                        Chi nhánh: {po.branchCode} · {po.branchName} · NCC:{" "}
+                        {po.supplierName ?? "Nhập lẻ"} · Tạo bởi{" "}
+                        {po.createdByName}
+                      </CardDescription>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-sm font-semibold tabular-nums">
+                        {formatVndAmount(po.totalAmount)}
+                      </span>
+                      {canReceive && po.status === "DRAFT" ? (
+                        <>
+                          <Button
+                            size="sm"
+                            onClick={async () => {
+                              try {
+                                await completePoMutation.mutateAsync({
+                                  id: po.id,
+                                  data: {},
+                                });
+                                toast.success(
+                                  `Đã hoàn tất nhập kho phiếu ${po.code}`,
+                                );
+                              } catch (err) {
+                                toast.error(formatApiError(err));
+                              }
+                            }}
+                            disabled={completePoMutation.isPending}
+                          >
+                            <CheckCircle2Icon data-icon="inline-start" />
+                            Hoàn tất nhập
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={async () => {
+                              try {
+                                await cancelPoMutation.mutateAsync(po.id);
+                                toast.success(`Đã hủy phiếu ${po.code}`);
+                              } catch (err) {
+                                toast.error(formatApiError(err));
+                              }
+                            }}
+                            disabled={cancelPoMutation.isPending}
+                          >
+                            <XCircleIcon data-icon="inline-start" />
+                            Hủy
+                          </Button>
+                        </>
+                      ) : null}
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="text-xs text-muted-foreground">
+                          <TableHead>SKU</TableHead>
+                          <TableHead>Tên hàng</TableHead>
+                          <TableHead className="text-right">SL đặt</TableHead>
+                          <TableHead className="text-right">
+                            SL thực nhập
+                          </TableHead>
+                          <TableHead className="text-right">
+                            Đơn giá nhập
+                          </TableHead>
+                          <TableHead className="text-right">
+                            Thành tiền
+                          </TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {po.items.map((item) => (
+                          <TableRow key={item.id}>
+                            <TableCell className="font-mono text-xs">
+                              {item.sku}
+                            </TableCell>
+                            <TableCell>{item.variantName}</TableCell>
+                            <TableCell className="text-right font-mono tabular-nums">
+                              {item.orderedQty}
+                            </TableCell>
+                            <TableCell className="text-right font-mono tabular-nums">
+                              {item.receivedQty}
+                            </TableCell>
+                            <TableCell className="text-right font-mono tabular-nums">
+                              {formatVndAmount(item.unitCost)}
+                            </TableCell>
+                            <TableCell className="text-right font-mono font-medium tabular-nums">
+                              {formatVndAmount(item.lineTotal)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              ))}
+
+              {poPagination ? (
+                <DataPagination
+                  page={page}
+                  totalPages={poPagination.totalPages}
+                  totalItems={poPagination.total}
+                  onPageChange={setPage}
+                />
+              ) : null}
+            </>
+          )}
         </TabsContent>
 
         <TabsContent value="suppliers" className="grid gap-4 pt-3 md:grid-cols-2">
-          {suppliers.map((sup) => (
-            <Card key={sup.id}>
-              <CardHeader className="flex flex-row items-start justify-between gap-2">
-                <div className="flex flex-col gap-1">
-                  <CardTitle className="text-base">{sup.name}</CardTitle>
-                  <CardDescription className="font-mono text-xs">
-                    Mã NCC: {sup.code}
-                  </CardDescription>
-                </div>
-                <Badge variant="outline">
-                  Công nợ: {formatVndAmount(sup.debtBalance)}
-                </Badge>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-1 text-sm text-muted-foreground">
-                <span>SĐT: {sup.phone ?? "—"}</span>
-                <span>Email: {sup.email ?? "—"}</span>
-                <span>Địa chỉ: {sup.address ?? "—"}</span>
+          {suppliersQuery.isError ? (
+            <div className="md:col-span-2">
+              <QueryErrorAlert
+                title="Không tải được danh sách nhà cung cấp"
+                error={suppliersQuery.error}
+                onRetry={() => void suppliersQuery.refetch()}
+              />
+            </div>
+          ) : null}
+
+          {suppliersQuery.isLoading ? (
+            <div className="md:col-span-2">
+              <CardGridSkeleton count={2} />
+            </div>
+          ) : suppliers.length === 0 ? (
+            <Card className="md:col-span-2">
+              <CardContent className="pt-4">
+                <Empty>
+                  <EmptyHeader>
+                    <EmptyMedia variant="icon">
+                      <TruckIcon />
+                    </EmptyMedia>
+                    <EmptyTitle>Chưa có nhà cung cấp</EmptyTitle>
+                    <EmptyDescription>
+                      Thêm hồ sơ nhà cung cấp để theo dõi đơn nhập hàng và công
+                      nợ phải trả.
+                    </EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
               </CardContent>
             </Card>
-          ))}
+          ) : (
+            suppliers.map((sup) => (
+              <Card key={sup.id}>
+                <CardHeader className="flex flex-row items-start justify-between gap-2">
+                  <div className="flex flex-col gap-1">
+                    <CardTitle className="text-base">{sup.name}</CardTitle>
+                    <CardDescription className="font-mono text-xs">
+                      Mã NCC: {sup.code}
+                    </CardDescription>
+                  </div>
+                  <Badge variant="outline">
+                    Công nợ: {formatVndAmount(sup.debtBalance)}
+                  </Badge>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-1 text-sm text-muted-foreground">
+                  <span>SĐT: {sup.phone ?? "—"}</span>
+                  <span>Email: {sup.email ?? "—"}</span>
+                  <span>Địa chỉ: {sup.address ?? "—"}</span>
+                </CardContent>
+              </Card>
+            ))
+          )}
         </TabsContent>
       </Tabs>
 
@@ -563,7 +671,7 @@ export default function PurchaseOrdersPage() {
                       </Select>
 
                       <Input
-                        aria-label="Số lượng"
+                        aria-label={`Số lượng dòng ${idx + 1}`}
                         placeholder="SL"
                         value={line.orderedQty}
                         onChange={(e) =>
@@ -577,7 +685,7 @@ export default function PurchaseOrdersPage() {
                         }
                       />
                       <Input
-                        aria-label="Đơn giá nhập"
+                        aria-label={`Đơn giá nhập dòng ${idx + 1}`}
                         placeholder="Đơn giá"
                         value={line.unitCost}
                         onChange={(e) =>
@@ -591,7 +699,7 @@ export default function PurchaseOrdersPage() {
                         }
                       />
                       <Input
-                        aria-label="Chiết khấu"
+                        aria-label={`Chiết khấu dòng ${idx + 1}`}
                         placeholder="Giảm giá"
                         value={line.discount}
                         onChange={(e) =>
@@ -609,12 +717,13 @@ export default function PurchaseOrdersPage() {
                         type="button"
                         variant="ghost"
                         size="icon-sm"
+                        aria-label={`Xóa dòng nhập ${idx + 1}`}
                         disabled={lines.length <= 1}
                         onClick={() =>
                           setLines((prev) => prev.filter((_, i) => i !== idx))
                         }
                       >
-                        <Trash2Icon className="size-4 text-destructive" />
+                        <Trash2Icon className="text-destructive" />
                       </Button>
                     </div>
                   );
@@ -635,20 +744,27 @@ export default function PurchaseOrdersPage() {
 
                 <div className="flex flex-col justify-end text-right text-sm">
                   <span className="text-muted-foreground">Tổng phiếu nhập</span>
-                  <span className="font-mono text-lg font-semibold">
+                  <span className="font-mono text-lg font-semibold tabular-nums">
                     {formatVndAmount(computeDraftTotal())}
                   </span>
                 </div>
               </div>
 
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
+              <Field orientation="horizontal">
+                <Checkbox
+                  id="po-complete-immediately"
                   checked={completeImmediately}
-                  onChange={(e) => setCompleteImmediately(e.target.checked)}
+                  onCheckedChange={(checked) =>
+                    setCompleteImmediately(Boolean(checked))
+                  }
                 />
-                <span>Hoàn tất nhập kho ngay (cập nhật tồn &amp; giá vốn AVCO)</span>
-              </label>
+                <FieldLabel
+                  htmlFor="po-complete-immediately"
+                  className="font-normal"
+                >
+                  Hoàn tất nhập kho ngay (cập nhật tồn &amp; giá vốn AVCO)
+                </FieldLabel>
+              </Field>
             </FieldGroup>
 
             <DialogFooter>
