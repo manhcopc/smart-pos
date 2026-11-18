@@ -1,4 +1,10 @@
 import { ERROR_CODES, type ErrorCode } from "@smart-pos/shared";
+import { isMockDataMode } from "./data-mode";
+import {
+  buildMockDownloadBlob,
+  mockApiRequest,
+  MockHttpError,
+} from "./mock-data/mock-router";
 
 const DEFAULT_API_BASE_URL = "http://localhost:4000/api/v1";
 const NON_REFRESHABLE_PATHS = new Set([
@@ -139,10 +145,37 @@ async function fetchWithAuthRetry(
   return response;
 }
 
+export function triggerBlobDownload(blob: Blob, fileName: string): void {
+  if (typeof window !== "undefined" && typeof URL.createObjectURL === "function") {
+    const objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = fileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+async function runMockApi<T>(path: string, init?: RequestInit): Promise<T> {
+  try {
+    return await mockApiRequest<T>(path, init);
+  } catch (err) {
+    if (err instanceof MockHttpError) {
+      throw new ApiClientError(err.message, err.statusCode, err.code);
+    }
+    throw err;
+  }
+}
+
 export async function apiFetch<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
+  if (isMockDataMode()) {
+    return runMockApi<T>(path, init);
+  }
   const response = await fetchWithAuthRetry(path, init);
   if (response.status === 204) {
     return undefined as T;
@@ -154,6 +187,9 @@ export async function apiFetchForm<T>(
   path: string,
   formData: FormData,
 ): Promise<T> {
+  if (isMockDataMode()) {
+    return runMockApi<T>(path, { method: "POST", body: formData });
+  }
   const response = await fetchWithAuthRetry(path, {
     method: "POST",
     body: formData,
@@ -165,14 +201,11 @@ export async function apiDownloadFile(
   path: string,
   fallbackFilename: string,
 ): Promise<void> {
+  if (isMockDataMode()) {
+    triggerBlobDownload(buildMockDownloadBlob(path), fallbackFilename);
+    return;
+  }
   const response = await fetchWithAuthRetry(path, { method: "GET" });
   const blob = await response.blob();
-  const objectUrl = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = objectUrl;
-  anchor.download = fallbackFilename;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(objectUrl);
+  triggerBlobDownload(blob, fallbackFilename);
 }
